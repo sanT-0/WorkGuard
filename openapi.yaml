@@ -1,0 +1,841 @@
+openapi: 3.1.0
+info:
+  title: WorkGuard Control API
+  version: 1.0.0-draft
+  description: >-
+    Draft API contract for managing policies and receiving endpoint status.
+    This specification is a design artifact, not a deployed or production-ready API.
+servers:
+  - url: https://workguard.example/api/v1
+    description: Placeholder production URL; replace during deployment.
+tags:
+  - name: Health
+  - name: Admin Devices
+  - name: Admin Policies
+  - name: Admin Events
+  - name: Admin Audit
+  - name: Admin Exceptions
+  - name: Agent
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: alive }
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      responses:
+        '200': { description: Required dependencies are ready }
+        '503': { description: Not ready }
+  /admin/devices:
+    get:
+      tags: [Admin Devices]
+      security: [{ oidcBearer: [] }]
+      summary: List managed devices
+      parameters:
+        - in: query
+          name: cursor
+          schema: { type: string, maxLength: 500 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - in: query
+          name: status
+          schema: { type: string, enum: [enrolled, compliant, noncompliant, stale, revoked, unknown] }
+      responses:
+        '200':
+          description: Page of devices
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/DeviceSummary' }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/devices/{device_id}:
+    get:
+      tags: [Admin Devices]
+      security: [{ oidcBearer: [] }]
+      summary: Read device details and verified control status
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Device detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/devices/{device_id}/revoke:
+    post:
+      tags: [Admin Devices]
+      security: [{ oidcBearer: [] }]
+      summary: Revoke device credential and sensitive access
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Device revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceSummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/enrollment-codes:
+    post:
+      tags: [Admin Devices]
+      security: [{ oidcBearer: [] }]
+      summary: Create short-lived, single-use enrollment code
+      description: The code is shown once, stored hashed, rate limited, and expires quickly.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expires_in_seconds]
+              additionalProperties: false
+              properties:
+                expires_in_seconds: { type: integer, minimum: 60, maximum: 600 }
+                requested_for_user_id: { type: [string, 'null'], format: uuid }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '201':
+          description: Enrollment code created; return it only once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enrollment_code, expires_at]
+                properties:
+                  enrollment_code: { type: string, minLength: 20, maxLength: 200 }
+                  expires_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/policies:
+    get:
+      tags: [Admin Policies]
+      security: [{ oidcBearer: [] }]
+      summary: List policy records
+      responses:
+        '200':
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PolicySummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin Policies]
+      security: [{ oidcBearer: [] }]
+      summary: Create a draft policy
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, policy]
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                policy: { $ref: '#/components/schemas/Policy' }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '201':
+          description: Draft created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicySummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/policies/{policy_id}:
+    get:
+      tags: [Admin Policies]
+      security: [{ oidcBearer: [] }]
+      summary: Read policy details and rollout status
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Policy details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Admin Policies]
+      security: [{ oidcBearer: [] }]
+      summary: Edit draft policy
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                policy: { $ref: '#/components/schemas/Policy' }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Draft updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Conflict; cannot edit non-draft policy }
+  /admin/policies/{policy_id}/submit:
+    post:
+      tags: [Admin Policies]
+      security: [{ oidcBearer: [] }]
+      summary: Submit draft policy for review
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Policy submitted for review
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicySummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Invalid lifecycle state transition }
+  /admin/policies/{policy_id}/approve:
+    post:
+      tags: [Admin Policies]
+      security: [{ oidcBearer: [] }]
+      summary: Approve policy as second authorized administrator
+      description: Must be an authorized approver distinct from the author (two-person rule).
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approval_notes]
+              additionalProperties: false
+              properties:
+                approval_notes: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Policy approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicySummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden; author cannot approve their own policy }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/policies/{policy_id}/publish:
+    post:
+      tags: [Admin Policies]
+      security: [{ oidcBearer: [] }]
+      summary: Publish an approved policy version
+      description: Publication validates approval separation, schema, scope, signature and rollout safety.
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, reason]
+              additionalProperties: false
+              properties:
+                version: { type: integer, minimum: 1 }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+                rollout_group: { type: string, maxLength: 120 }
+      responses:
+        '202': { description: Policy publication accepted for rollout }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Approval or policy version conflict }
+  /admin/policies/{policy_id}/rollback:
+    post:
+      tags: [Admin Policies]
+      security: [{ oidcBearer: [] }]
+      summary: Rollback policy to a prior approved version
+      description: Publishes a new policy_version (N+1) pointing to a previous safe version, preserving monotonic anti-downgrade.
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_version, reason]
+              additionalProperties: false
+              properties:
+                target_version: { type: integer, minimum: 1 }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '202':
+          description: Rollback published as new version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicySummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/events:
+    get:
+      tags: [Admin Events]
+      security: [{ oidcBearer: [] }]
+      summary: Search security events
+      parameters:
+        - in: query
+          name: cursor
+          schema: { type: string, maxLength: 500 }
+        - in: query
+          name: device_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: event_type
+          schema: { type: string, maxLength: 120 }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Events page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SecurityEvent' }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/audit-events:
+    get:
+      tags: [Admin Audit]
+      security: [{ oidcBearer: [] }]
+      summary: Search administrator audit trail
+      parameters:
+        - in: query
+          name: cursor
+          schema: { type: string, maxLength: 500 }
+        - in: query
+          name: actor_user_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: action
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Page of audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminAuditEvent' }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/exceptions:
+    post:
+      tags: [Admin Exceptions]
+      security: [{ oidcBearer: [] }]
+      summary: Request or create a scoped policy exception
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_id, control_id, reason, expires_at]
+              additionalProperties: false
+              properties:
+                device_id: { type: string, format: uuid }
+                control_id: { type: string, maxLength: 100 }
+                reason: { type: string, minLength: 5, maxLength: 500 }
+                expires_at: { type: string, format: date-time }
+      responses:
+        '201':
+          description: Exception created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyException' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/exceptions/{exception_id}/revoke:
+    post:
+      tags: [Admin Exceptions]
+      security: [{ oidcBearer: [] }]
+      summary: Revoke an active policy exception
+      parameters:
+        - name: exception_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Exception revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyException' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /agent/enroll:
+    post:
+      tags: [Agent]
+      summary: Exchange one-time enrollment code for a device identity
+      description: Rate limited; enrollment code is single-use. Binds subsequent calls to a client certificate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enrollment_code, device_public_key, agent_version, os_version]
+              additionalProperties: false
+              properties:
+                enrollment_code: { type: string, minLength: 20, maxLength: 200 }
+                device_public_key: { type: string, minLength: 20, maxLength: 5000 }
+                agent_version: { type: string, maxLength: 50 }
+                os_version: { type: string, maxLength: 200 }
+      responses:
+        '201':
+          description: Device enrolled; credential issuance method depends on selected PKI
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device_id, credential_enrollment_uri]
+                properties:
+                  device_id: { type: string, format: uuid }
+                  credential_enrollment_uri: { type: string, format: uri }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { description: Rate limited }
+  /agent/heartbeat:
+    post:
+      tags: [Agent]
+      security: [{ deviceAuth: [] }]
+      summary: Report endpoint metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_version, os_version, observed_at]
+              additionalProperties: false
+              properties:
+                agent_version: { type: string, maxLength: 50 }
+                os_version: { type: string, maxLength: 200 }
+                os_edition: { type: string, maxLength: 100 }
+                current_policy_version: { type: [integer, 'null'], minimum: 1 }
+                observed_at: { type: string, format: date-time }
+                endpoint_protection_state: { type: string, enum: [active, inactive, unknown, unsupported] }
+      responses:
+        '202': { description: Heartbeat accepted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { description: Request too large }
+        '429': { description: Rate limited }
+  /agent/policies/current:
+    get:
+      tags: [Agent]
+      security: [{ deviceAuth: [] }]
+      summary: Retrieve assigned signed policy for this device
+      responses:
+        '200':
+          description: Policy envelope
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignedPolicyEnvelope' }
+        '204': { description: No policy update available }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /agent/policy-results:
+    post:
+      tags: [Agent]
+      security: [{ deviceAuth: [] }]
+      summary: Report actual per-control enforcement and read-back status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [policy_version, observed_at, controls]
+              additionalProperties: false
+              properties:
+                policy_version: { type: integer, minimum: 1 }
+                observed_at: { type: string, format: date-time }
+                controls:
+                  type: array
+                  maxItems: 30
+                  items: { $ref: '#/components/schemas/ControlResult' }
+      responses:
+        '202': { description: Results accepted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /agent/events:batch:
+    post:
+      tags: [Agent]
+      security: [{ deviceAuth: [] }]
+      summary: Upload bounded security event metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              additionalProperties: false
+              properties:
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { $ref: '#/components/schemas/AgentEvent' }
+      responses:
+        '202': { description: Events accepted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { description: Payload too large }
+        '429': { description: Rate limited }
+  /agent/updates/check:
+    post:
+      tags: [Agent]
+      security: [{ deviceAuth: [] }]
+      summary: Check approved signed agent release metadata
+      description: Returns signed release metadata. Agent verifies digest and signature before executing update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_version, os_version, architecture]
+              additionalProperties: false
+              properties:
+                current_version: { type: string, maxLength: 50 }
+                os_version: { type: string, maxLength: 200 }
+                architecture: { type: string, enum: [x64, arm64] }
+      responses:
+        '200':
+          description: Agent release metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentReleaseCheckResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { description: Rate limited }
+components:
+  securitySchemes:
+    oidcBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OIDC-issued access token; validate issuer, audience, signature and expiry.
+    deviceAuth:
+      type: mutualTLS
+      description: Device-bound client certificate authentication via mTLS; private key in TPM/CNG.
+  parameters:
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, minLength: 8, maxLength: 128 }
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Authentication required or invalid
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Insufficient permission
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found in caller's authorized scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    DeviceSummary:
+      type: object
+      required: [id, display_name, status, last_seen_at]
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: string }
+        assigned_user_id: { type: [string, 'null'], format: uuid }
+        os_version: { type: string }
+        agent_version: { type: string }
+        status: { type: string, enum: [enrolled, compliant, noncompliant, stale, revoked, unknown] }
+        last_seen_at: { type: [string, 'null'], format: date-time }
+    DeviceDetail:
+      allOf:
+        - $ref: '#/components/schemas/DeviceSummary'
+        - type: object
+          properties:
+            os_edition: { type: string }
+            policy_version_desired: { type: [integer, 'null'] }
+            policy_version_observed: { type: [integer, 'null'] }
+            controls:
+              type: array
+              items: { $ref: '#/components/schemas/ControlResult' }
+    PolicySummary:
+      type: object
+      required: [id, name, lifecycle_state]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        lifecycle_state: { type: string, enum: [draft, submitted, approved, published, retired] }
+        version: { type: [integer, 'null'], minimum: 1 }
+        updated_at: { type: string, format: date-time }
+    PolicyDetail:
+      allOf:
+        - $ref: '#/components/schemas/PolicySummary'
+        - type: object
+          required: [policy]
+          properties:
+            policy: { $ref: '#/components/schemas/Policy' }
+            created_by: { type: string, format: uuid }
+            approved_by: { type: [string, 'null'], format: uuid }
+            published_by: { type: [string, 'null'], format: uuid }
+    Policy:
+      type: object
+      required: [schema_version, policy_id, policy_version, name, rollout_mode, controls]
+      additionalProperties: false
+      properties:
+        schema_version: { type: string, const: '1.0.0' }
+        policy_id: { type: string, format: uuid }
+        policy_version: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        rollout_mode: { type: string, enum: [audit, enforce] }
+        controls:
+          type: array
+          maxItems: 30
+          items:
+            type: object
+            required: [control_id, required, settings]
+            additionalProperties: false
+            properties:
+              control_id:
+                type: string
+                enum: [removable_storage, application_control, disk_encryption, endpoint_protection, endpoint_dlp, network_policy]
+              required: { type: boolean }
+              settings:
+                type: object
+                description: "Typed settings validated against control_id rules in schemas/policy.schema.json"
+    SignedPolicyEnvelope:
+      type: object
+      required: [policy_id, policy_version, schema_version, issued_at, expires_at, target_device_id, digest_sha256, signature, algorithm, key_id, policy]
+      properties:
+        policy_id: { type: string, format: uuid }
+        policy_version: { type: integer, minimum: 1 }
+        schema_version: { type: string }
+        issued_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        target_device_id: { type: string, format: uuid }
+        digest_sha256: { type: string, pattern: '^[a-fA-F0-9]{64}$' }
+        algorithm: { type: string, const: 'Ed25519' }
+        key_id: { type: string, maxLength: 100 }
+        signature:
+          type: string
+          minLength: 64
+          maxLength: 500
+          description: Base64-encoded Ed25519 signature over canonical JSON envelope (RFC 8785 / JCS) per SIGNING_SPEC.md
+        policy: { $ref: '#/components/schemas/Policy' }
+    ControlResult:
+      type: object
+      required: [control_id, status, observed_at, provider]
+      properties:
+        control_id: { type: string }
+        status: { type: string, enum: [enforced, partial, failed, unsupported, not_configured, unknown] }
+        provider: { type: string, maxLength: 100 }
+        observed_at: { type: string, format: date-time }
+        error_code: { type: [string, 'null'], maxLength: 100 }
+        safe_details:
+          type: [string, 'null']
+          maxLength: 1000
+          description: Diagnostic detail conforming to safe allowlist; must not contain secrets, tokens, file paths outside standard roots, or personal identifiable info.
+    SecurityEvent:
+      type: object
+      required: [id, event_type, severity, occurred_at, source]
+      properties:
+        id: { type: string, format: uuid }
+        device_id: { type: [string, 'null'], format: uuid }
+        event_type: { type: string, maxLength: 120 }
+        severity: { type: string, enum: [info, low, medium, high, critical] }
+        occurred_at: { type: string, format: date-time }
+        source: { type: string, maxLength: 100 }
+        response_state: { type: string, maxLength: 100 }
+    AgentEvent:
+      allOf:
+        - $ref: '#/components/schemas/SecurityEvent'
+      description: Bounded metadata only. Never include file content, access tokens, clipboard data or source-code text.
+    AdminAuditEvent:
+      type: object
+      required: [id, actor_user_id, action, target_type, target_id, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        actor_user_id: { type: string, format: uuid }
+        action: { type: string, maxLength: 100 }
+        target_type: { type: string, maxLength: 100 }
+        target_id: { type: [string, 'null'], format: uuid }
+        details: { type: object }
+        created_at: { type: string, format: date-time }
+    PolicyException:
+      type: object
+      required: [id, device_id, control_id, reason, status, created_at, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        device_id: { type: string, format: uuid }
+        control_id: { type: string, maxLength: 100 }
+        reason: { type: string, maxLength: 500 }
+        status: { type: string, enum: [active, revoked, expired] }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+        revoked_reason: { type: [string, 'null'], maxLength: 500 }
+    AgentReleaseCheckResponse:
+      type: object
+      required: [update_available]
+      properties:
+        update_available: { type: boolean }
+        release_version: { type: [string, 'null'], maxLength: 50 }
+        artifact_url: { type: [string, 'null'], format: uri }
+        artifact_sha256: { type: [string, 'null'], pattern: '^[a-fA-F0-9]{64}$' }
+        signature_base64: { type: [string, 'null'], minLength: 16 }
+        mandatory: { type: boolean }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string, maxLength: 100 }
+            message: { type: string, maxLength: 500 }
+            request_id: { type: string, maxLength: 100 }

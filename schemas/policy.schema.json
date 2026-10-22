@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workguard.example/schemas/policy.schema.json",
+  "title": "WorkGuard Policy",
+  "description": "Canonical typed policy schema. Policies map to a finite set of typed controls with strictly validated values, resolving F-009.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "policy_id", "policy_version", "name", "controls"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "policy_id": { "type": "string", "format": "uuid" },
+    "policy_version": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 1000 },
+    "rollout_mode": { "type": "string", "enum": ["audit", "enforce"] },
+    "controls": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["control_id", "required", "settings"],
+        "properties": {
+          "control_id": {
+            "type": "string",
+            "enum": [
+              "removable_storage",
+              "application_control",
+              "disk_encryption",
+              "endpoint_protection",
+              "endpoint_dlp",
+              "network_policy"
+            ]
+          },
+          "required": { "type": "boolean" },
+          "settings": { "type": "object" }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "control_id": { "const": "removable_storage" } }
+            },
+            "then": {
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["action"],
+                  "properties": {
+                    "action": { "type": "string", "enum": ["deny", "read_only", "allow"] },
+                    "device_classes": {
+                      "type": "array",
+                      "items": { "type": "string", "enum": ["USB_MSD", "CD_DVD", "WPD"] }
+                    },
+                    "audit_only": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "control_id": { "const": "application_control" } }
+            },
+            "then": {
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["mode"],
+                  "properties": {
+                    "mode": { "type": "string", "enum": ["audit", "enforce", "off"] },
+                    "allowed_publishers": {
+                      "type": "array",
+                      "items": { "type": "string", "maxLength": 255 }
+                    },
+                    "allowed_paths": {
+                      "type": "array",
+                      "items": { "type": "string", "maxLength": 500 }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "control_id": { "const": "disk_encryption" } }
+            },
+            "then": {
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["require_bitlocker"],
+                  "properties": {
+                    "require_bitlocker": { "type": "boolean" },
+                    "min_cipher_strength": { "type": "string", "enum": ["aes_128", "aes_256"] },
+                    "require_tpm": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "control_id": { "const": "endpoint_protection" } }
+            },
+            "then": {
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["require_antivirus", "require_realtime_protection"],
+                  "properties": {
+                    "require_antivirus": { "type": "boolean" },
+                    "require_realtime_protection": { "type": "boolean" },
+                    "max_signature_age_days": { "type": "integer", "minimum": 1, "maximum": 30 }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "control_id": { "const": "endpoint_dlp" } }
+            },
+            "then": {
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["provider"],
+                  "properties": {
+                    "provider": { "type": "string", "enum": ["microsoft_purview", "external_adapter", "disabled"] },
+                    "block_untrusted_browser_upload": { "type": "boolean" },
+                    "block_personal_cloud_sync": { "type": "boolean" },
+                    "clipboard_monitoring": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "control_id": { "const": "network_policy" } }
+            },
+            "then": {
+              "properties": {
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["require_firewall"],
+                  "properties": {
+                    "require_firewall": { "type": "boolean" },
+                    "block_inbound": { "type": "boolean" },
+                    "authorized_git_remotes": {
+                      "type": "array",
+                      "items": { "type": "string", "maxLength": 500 }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
