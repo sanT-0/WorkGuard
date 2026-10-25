@@ -3,6 +3,15 @@
 > **Status:** Normative. All components (control-plane signer, Windows agent verifier) must
 > implement exactly this specification. Do not deviate without a documented ADR and a
 > coordinated version bump.
+>
+> **Local MVP implementation notes:** the signer and simulator verifier implement
+> sections 3, 4, 6, 7 and 9. Two deployment requirements are not yet met:
+> the private key is loaded from a git-ignored PEM file in local development
+> (KMS/HSM integration is future work), and the JWKS endpoint is public rather
+> than access-controlled because it contains only public verification keys.
+> Non-local startup requires a configured key path and rejects development
+> credential peppers, but it does not yet call a KMS. Static test vectors are
+> committed under `control-api/tests/signing/vectors.json`.
 
 ## 1. Purpose
 

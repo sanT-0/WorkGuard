@@ -1,5 +1,15 @@
 # WorkGuard Security Requirements
 
+> **Implementation status:** this is the requirements document, not a statement
+> that every control is deployed. The current local MVP implements schema
+> validation, Ed25519 envelope signing/verification, RBAC, per-device bearer
+> tokens, HMAC-hashed credentials, immutable policy versions, author/approver
+> separation, audit chaining, rate limits, and freshness. It does **not** yet
+> implement mTLS, MFA/step-up authentication, HSM-backed keys, PostgreSQL
+> least-privilege roles, tenant-scoped object authorization beyond `org_id`,
+> an external immutable audit sink, or real endpoint enforcement/DLP. See
+> `README.md` and `ROADMAP.md` for the exact boundary.
+
 ## 1. Security objectives
 
 - Reduce unauthorized copying of company source code and work files.

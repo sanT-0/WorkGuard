@@ -1,5 +1,20 @@
 # WorkGuard Implementation Roadmap
 
+## Current implementation status
+
+- **Phase 0:** documentation exists; company-specific discovery and sign-off are
+  still required.
+- **Phase 1:** mostly implemented, with deviations: SQLite instead of
+  PostgreSQL, a static HTML/JS console instead of React, and an OIDC code path
+  that has not been tested against a live identity provider. Enrollment,
+  revocation, policy lifecycle, audit, and the simulator are implemented.
+- **Phase 2:** not started. There is no signed .NET service, installer, mTLS, or
+  real Windows provider adapter. `endpoint-agent/simulator.py` is a contract
+  harness only.
+- **Phase 3–5:** not started.
+- Scoped, expiring exceptions (a Phase 4 item) are implemented in the control
+  plane and console, but no endpoint adapter consumes them for enforcement.
+
 ## Phase 0 — Discovery and acceptance criteria
 
 Deliverables:

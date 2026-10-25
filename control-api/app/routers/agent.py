@@ -1,175 +1,368 @@
-from fastapi import APIRouter, HTTPException, Header
-import uuid, json, hashlib
-from datetime import datetime, timezone, timedelta
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import JSONResponse
+
+from app import config
+from app.audit import write_audit
+from app.compliance import (
+    ensure_assignment,
+    get_assigned_policy,
+    restore_heartbeat,
+    update_compliance,
+)
 from app.database import get_connection, utc_now_iso
-from app.crypto import sign_envelope, SERVER_PUBLIC_KEY_HEX
 from app.schemas import (
-    AgentEnrollRequest, AgentEnrollResponse, AgentHeartbeatRequest,
-    AgentPolicyResultsRequest, AgentEventsBatchRequest,
-    AgentUpdatesCheckRequest, AgentReleaseCheckResponse
+    AgentEnrollRequest,
+    AgentEnrollResponse,
+    AgentEventsBatchRequest,
+    AgentHeartbeatRequest,
+    AgentPolicyResultsRequest,
+    AgentReleaseCheckResponse,
+    AgentUpdatesCheckRequest,
+    RotateDeviceCredentialResponse,
+)
+from app.security import (
+    generate_device_token,
+    get_current_device,
+    hash_device_token,
+    hash_enrollment_code,
+)
+from app.signing import build_signed_envelope, jwks
+from app.validation import (
+    FieldValidationError,
+    parse_timestamp,
+    policy_control_ids,
+    validate_event_type,
+    validate_policy,
+    validate_safe_details,
 )
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 
+
+def _iso(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat()
+
+
+@router.get("/keys")
+def policy_keys():
+    """Public verification keys.  No secret material is exposed."""
+
+    return JSONResponse(content=jwks(), headers={"Cache-Control": "public, max-age=300"})
+
+
 @router.post("/enroll", response_model=AgentEnrollResponse, status_code=201)
 def agent_enroll(req: AgentEnrollRequest):
-    code_hash = hashlib.sha256(req.enrollment_code.strip().encode("utf-8")).hexdigest()
+    code_hash = hash_enrollment_code(req.enrollment_code)
     conn = get_connection()
-    cur = conn.cursor()
-    record = cur.execute("SELECT * FROM enrollment_codes WHERE code_hash = ?", (code_hash,)).fetchone()
-    if not record:
+    try:
+        record = conn.execute(
+            "SELECT * FROM enrollment_codes WHERE code_hash = ?", (code_hash,)
+        ).fetchone()
+        if not record:
+            raise HTTPException(status_code=401, detail="Invalid enrollment code")
+        if record["used_at"] is not None:
+            raise HTTPException(status_code=401, detail="Enrollment code has already been used")
+
+        expires_at = datetime.fromisoformat(record["expires_at"].replace("Z", "+00:00"))
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) > expires_at:
+            conn.execute(
+                "UPDATE enrollment_codes SET failed_attempts = failed_attempts + 1 "
+                "WHERE code_hash = ?",
+                (code_hash,),
+            )
+            conn.commit()
+            raise HTTPException(status_code=401, detail="Enrollment code has expired")
+
+        now = utc_now_iso()
+        claimed = conn.execute(
+            "UPDATE enrollment_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL",
+            (now, code_hash),
+        )
+        if claimed.rowcount != 1:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Enrollment code was already consumed")
+
+        device_id = str(uuid.uuid4())
+        display_name = f"WIN-{device_id[:6].upper()}-LAPTOP"
+        token = generate_device_token()
+        token_hash = hash_device_token(token)
+
+        conn.execute(
+            "INSERT INTO devices "
+            "(id, org_id, display_name, assigned_user_id, os_version, os_edition, "
+            " agent_version, status, last_seen_at, device_public_key, "
+            " credential_hash, credential_issued_at, created_at) "
+            "VALUES (?, 'org-default', ?, ?, ?, ?, ?, 'enrolled', ?, ?, ?, ?, ?)",
+            (
+                device_id,
+                display_name,
+                record["requested_for_user_id"],
+                req.os_version,
+                req.os_edition or "Windows 11 Enterprise",
+                req.agent_version,
+                now,
+                req.device_public_key,
+                token_hash,
+                now,
+                now,
+            ),
+        )
+        conn.execute(
+            "UPDATE enrollment_codes SET used_by_device_id = ? WHERE code_hash = ?",
+            (device_id, code_hash),
+        )
+        ensure_assignment(conn, device_id)
+        assignment = get_assigned_policy(conn, device_id)
+        if assignment:
+            conn.execute(
+                "UPDATE devices SET policy_version_desired = ? WHERE id = ?",
+                (assignment["desired_version"], device_id),
+            )
+        write_audit(
+            conn,
+            actor=f"agent:{device_id}",
+            action="device.enrolled",
+            target_type="device",
+            target_id=device_id,
+            details={"display_name": display_name, "os": req.os_version},
+        )
+        conn.commit()
+        return {
+            "device_id": device_id,
+            "device_token": token,
+            "expires_at": expires_at.isoformat(),
+        }
+    finally:
         conn.close()
-        raise HTTPException(status_code=401, detail="Invalid enrollment code")
-    
-    now = datetime.now(timezone.utc)
-    exp = datetime.fromisoformat(record["expires_at"].replace("Z", "+00:00"))
-    if now > exp:
-        conn.close()
-        raise HTTPException(status_code=401, detail="Enrollment code has expired")
-    if record["used_at"] is not None:
-        conn.close()
-        raise HTTPException(status_code=401, detail="Enrollment code has already been used")
-    
-    device_id = str(uuid.uuid4())
-    display_name = f"WIN-{device_id[:6].upper()}-LAPTOP"
-    now_iso = utc_now_iso()
-    
-    cur.execute(
-        "INSERT INTO devices (id, display_name, assigned_user_id, os_version, os_edition, agent_version, status, last_seen_at, policy_version_desired, policy_version_observed, device_public_key, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 'enrolled', ?, 1, NULL, ?, ?)",
-        (device_id, display_name, record["requested_for_user_id"], req.os_version, req.os_edition, req.agent_version, now_iso, req.device_public_key, now_iso)
-    )
-    cur.execute(
-        "UPDATE enrollment_codes SET used_at = ?, used_by_device_id = ? WHERE code_hash = ?",
-        (now_iso, device_id, code_hash)
-    )
-    cur.execute(
-        "INSERT INTO admin_audit_events (id, actor_user_id, action, target_type, target_id, details_json, created_at) "
-        "VALUES (?, 'agent', 'device.enroll', 'device', ?, ?, ?)",
-        (str(uuid.uuid4()), device_id, f'{{"display_name": "{display_name}", "os": "{req.os_version}"}}', now_iso)
-    )
-    conn.commit()
-    conn.close()
-    return {
-        "device_id": device_id,
-        "credential_enrollment_uri": f"https://workguard.example/api/v1/agent/cert/{device_id}"
-    }
+
 
 @router.post("/heartbeat", status_code=202)
-def agent_heartbeat(req: AgentHeartbeatRequest, x_device_id: str = Header("dev-sim-001")):
+def agent_heartbeat(
+    req: AgentHeartbeatRequest,
+    device: Annotated[dict, Depends(get_current_device)],
+):
+    try:
+        parse_timestamp(req.observed_at, "observed_at")
+    except FieldValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     conn = get_connection()
-    cur = conn.cursor()
-    dev = cur.execute("SELECT * FROM devices WHERE id = ?", (x_device_id,)).fetchone()
-    if not dev:
+    try:
+        now = utc_now_iso()
+        observed = req.current_policy_version
+        if observed is not None and device.get("policy_version_observed") is not None:
+            observed = max(observed, int(device["policy_version_observed"]))
+        conn.execute(
+            "UPDATE devices SET last_seen_at = ?, agent_version = ?, os_version = ?, "
+            "os_edition = COALESCE(?, os_edition), policy_version_observed = "
+            "COALESCE(?, policy_version_observed) WHERE id = ?",
+            (
+                now,
+                req.agent_version,
+                req.os_version,
+                req.os_edition,
+                observed,
+                device["id"],
+            ),
+        )
+        restore_heartbeat(conn, device["id"], observed)
+        conn.commit()
+        assignment = get_assigned_policy(conn, device["id"])
+        return {
+            "status": "heartbeat_acknowledged",
+            "last_seen_at": now,
+            "desired_policy_version": assignment["desired_version"] if assignment else None,
+            "next_heartbeat_seconds": max(30, config.DEVICE_STALE_AFTER_SECONDS // 3),
+        }
+    finally:
         conn.close()
-        raise HTTPException(status_code=401, detail="Unknown device")
-    if dev["status"] == "revoked":
-        conn.close()
-        raise HTTPException(status_code=403, detail="Device has been revoked")
-    
-    now_iso = utc_now_iso()
-    cur.execute(
-        "UPDATE devices SET last_seen_at = ?, agent_version = ?, os_version = ?, policy_version_observed = ? WHERE id = ?",
-        (now_iso, req.agent_version, req.os_version, req.current_policy_version, x_device_id)
-    )
-    conn.commit()
-    conn.close()
-    return {"status": "heartbeat_acknowledged", "last_seen_at": now_iso}
+
 
 @router.get("/policies/current")
-def get_current_policy(x_device_id: str = Header("dev-sim-001")):
+def get_current_policy(device: Annotated[dict, Depends(get_current_device)]):
     conn = get_connection()
-    cur = conn.cursor()
-    dev = cur.execute("SELECT * FROM devices WHERE id = ?", (x_device_id,)).fetchone()
-    if not dev:
+    try:
+        assignment = get_assigned_policy(conn, device["id"])
+        if assignment is None:
+            return Response(status_code=204)
+        policy = assignment["policy"]
+        validate_policy(policy)
+        envelope = build_signed_envelope(policy, device["id"])
+        response = JSONResponse(content=envelope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    finally:
         conn.close()
-        raise HTTPException(status_code=401, detail="Device not authenticated")
-    if dev["status"] == "revoked":
+
+
+@router.post("/credential/rotate", response_model=RotateDeviceCredentialResponse)
+def rotate_credential(device: Annotated[dict, Depends(get_current_device)]):
+    token = generate_device_token()
+    issued = utc_now_iso()
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE devices SET credential_hash = ?, credential_issued_at = ? WHERE id = ?",
+            (hash_device_token(token), issued, device["id"]),
+        )
+        write_audit(
+            conn,
+            actor=f"agent:{device['id']}",
+            action="device.credential_rotated",
+            target_type="device",
+            target_id=device["id"],
+            details={"issued_at": issued},
+        )
+        conn.commit()
+        return {"device_id": device["id"], "device_token": token, "issued_at": issued}
+    finally:
         conn.close()
-        raise HTTPException(status_code=403, detail="Device revoked")
-    
-    pv = cur.execute(
-        "SELECT pv.*, p.id as pol_id FROM policy_versions pv "
-        "JOIN policies p ON p.id = pv.policy_id "
-        "WHERE p.lifecycle_state = 'published' "
-        "ORDER BY pv.version DESC LIMIT 1"
-    ).fetchone()
-    if not pv:
-        conn.close()
-        raise HTTPException(status_code=204, detail="No published policy")
-    
-    policy_dict = json.loads(pv["policy_json"])
-    now = datetime.now(timezone.utc)
-    issued_at = now.isoformat()
-    expires_at = (now + timedelta(days=1)).isoformat()
-    
-    envelope = {
-        "policy_id": pv["policy_id"],
-        "policy_version": pv["version"],
-        "schema_version": "1.0.0",
-        "issued_at": issued_at,
-        "expires_at": expires_at,
-        "target_device_id": x_device_id,
-        "digest_sha256": pv["digest_sha256"],
-        "algorithm": "Ed25519",
-        "key_id": pv["key_id"],
-        "signature": pv["signature_base64"],
-        "policy": policy_dict
-    }
-    conn.close()
-    return envelope
+
 
 @router.post("/policy-results", status_code=202)
-def post_policy_results(req: AgentPolicyResultsRequest, x_device_id: str = Header("dev-sim-001")):
+def post_policy_results(
+    req: AgentPolicyResultsRequest,
+    device: Annotated[dict, Depends(get_current_device)],
+):
+    try:
+        parse_timestamp(req.observed_at, "observed_at")
+    except FieldValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     conn = get_connection()
-    cur = conn.cursor()
-    dev = cur.execute("SELECT * FROM devices WHERE id = ?", (x_device_id,)).fetchone()
-    if not dev:
-        conn.close()
-        raise HTTPException(status_code=401, detail="Device not authenticated")
-    
-    for cr in req.controls:
-        safe_det = cr.safe_details[:1000] if cr.safe_details else None
-        res_id = str(uuid.uuid4())
-        cur.execute(
-            "INSERT INTO control_results (id, device_id, policy_version, control_id, status, provider, observed_at, error_code, safe_details) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (res_id, x_device_id, req.policy_version, cr.control_id, cr.status, cr.provider, cr.observed_at, cr.error_code, safe_det)
+    try:
+        assignment = get_assigned_policy(conn, device["id"])
+        if assignment is None:
+            raise HTTPException(status_code=409, detail="Device has no assigned policy")
+        if req.policy_version not in {
+            assignment["desired_version"],
+            device.get("last_applied_version"),
+        }:
+            raise HTTPException(status_code=409, detail="Unknown policy version")
+
+        allowed_controls = policy_control_ids(assignment["policy"])
+        for result in req.controls:
+            if result.control_id not in allowed_controls:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unknown control_id: {result.control_id}",
+                )
+            if result.error_code and len(result.error_code) > 120:
+                raise HTTPException(status_code=422, detail="error_code is too long")
+            try:
+                safe_details = validate_safe_details(result.safe_details)
+            except FieldValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+            conn.execute(
+                "INSERT INTO control_results "
+                "(id, device_id, policy_version, control_id, status, provider, "
+                " observed_at, error_code, safe_details) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(device_id, policy_version, control_id) DO UPDATE SET "
+                " status = excluded.status, provider = excluded.provider, "
+                " observed_at = excluded.observed_at, error_code = excluded.error_code, "
+                " safe_details = excluded.safe_details",
+                (
+                    str(uuid.uuid4()),
+                    device["id"],
+                    req.policy_version,
+                    result.control_id,
+                    result.status,
+                    result.provider[:200],
+                    result.observed_at,
+                    result.error_code,
+                    safe_details,
+                ),
+            )
+
+        observed = req.policy_version
+        if device.get("policy_version_observed") is not None:
+            observed = max(observed, int(device["policy_version_observed"]))
+        conn.execute(
+            "UPDATE devices SET policy_version_observed = ?, "
+            "last_applied_version = MAX(COALESCE(last_applied_version, 0), ?) "
+            "WHERE id = ?",
+            (observed, req.policy_version, device["id"]),
         )
-    
-    statuses = [c.status for c in req.controls]
-    if any(s == "failed" for s in statuses):
-        new_status = "noncompliant"
-    else:
-        new_status = "compliant"
-    
-    cur.execute(
-        "UPDATE devices SET status = ?, policy_version_observed = ?, last_seen_at = ? WHERE id = ?",
-        (new_status, req.policy_version, req.observed_at, x_device_id)
-    )
-    conn.commit()
-    conn.close()
-    return {"status": "results_accepted", "derived_device_status": new_status}
+        # Evaluate against the currently desired version, never against the
+        # version the agent happened to report.  Otherwise an agent could keep
+        # reporting results for an old version and appear compliant after a
+        # newer policy was published.
+        derived = update_compliance(conn, device["id"])
+        conn.commit()
+        return {
+            "status": "results_accepted",
+            "derived_device_status": derived,
+        }
+    finally:
+        conn.close()
+
 
 @router.post("/events:batch", status_code=202)
-def post_events_batch(req: AgentEventsBatchRequest, x_device_id: str = Header("dev-sim-001")):
-    conn = get_connection()
-    cur = conn.cursor()
-    for ev in req.events:
-        ev_id = ev.id or str(uuid.uuid4())
-        cur.execute(
-            "INSERT INTO security_events (id, device_id, event_type, severity, occurred_at, source, response_state) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (ev_id, x_device_id, ev.event_type, ev.severity, ev.occurred_at, ev.source, ev.response_state)
+def post_events_batch(
+    req: AgentEventsBatchRequest,
+    device: Annotated[dict, Depends(get_current_device)],
+):
+    if len(req.events) > config.MAX_EVENT_BATCH_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Batch exceeds {config.MAX_EVENT_BATCH_SIZE} events",
         )
-    conn.commit()
-    conn.close()
-    return {"status": "events_accepted", "count": len(req.events)}
+
+    conn = get_connection()
+    try:
+        accepted = 0
+        for event in req.events:
+            try:
+                validate_event_type(event.event_type)
+                parse_timestamp(event.occurred_at, "occurred_at")
+            except FieldValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            if event.device_id and event.device_id != device["id"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Event device_id does not match the authenticated device",
+                )
+            event_id = event.id or str(uuid.uuid4())
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO security_events "
+                "(id, device_id, event_type, severity, occurred_at, source, "
+                " response_state) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    device["id"],
+                    event.event_type,
+                    event.severity,
+                    event.occurred_at,
+                    event.source[:120],
+                    event.response_state[:120],
+                ),
+            )
+            accepted += cursor.rowcount
+        conn.commit()
+        return {"status": "events_accepted", "count": accepted, "submitted": len(req.events)}
+    finally:
+        conn.close()
+
 
 @router.post("/updates/check", response_model=AgentReleaseCheckResponse)
-def check_updates(req: AgentUpdatesCheckRequest):
+def check_updates(
+    req: AgentUpdatesCheckRequest,
+    device: Annotated[dict, Depends(get_current_device)],
+):
+    # No release feed is configured in the MVP.  Returning an unsigned or
+    # guessed artifact would violate the signed-update requirement.
     return {
         "update_available": False,
-        "release_version": "1.0.0",
-        "mandatory": False
+        "release_version": req.current_version,
+        "mandatory": False,
     }

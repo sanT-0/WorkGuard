@@ -1,5 +1,14 @@
 # WorkGuard Windows Endpoint Agent
 
+> **Implementation status:** This document describes the proposed production
+> Windows service. That service is **not implemented** in this repository.
+> The only executable endpoint component is
+> [`endpoint-agent/simulator.py`](endpoint-agent/simulator.py), a development
+> harness that performs real envelope verification and reports simulated
+> read-back results. The harness authenticates with a per-device bearer token;
+> mTLS, certificate storage, MSI packaging, provider adapters, and actual
+> Windows enforcement described below remain future work.
+
 ## 1. Responsibility
 
 The agent coordinates policy delivery and status reporting. It is not an antivirus, universal upload interceptor, kernel driver, or substitute for operating-system security controls and endpoint DLP.

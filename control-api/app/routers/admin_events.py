@@ -1,80 +1,127 @@
-from fastapi import APIRouter, Query
-from typing import Optional
-import json
-from app.database import get_connection
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
+
+from app.audit import decode_details, verify_audit_chain
+from app.database import decode_cursor, encode_cursor, get_connection
+from app.security import Principal, require_role
 
 router = APIRouter(prefix="/admin", tags=["Admin Events"])
 
+
 @router.get("/events")
 def list_events(
-    cursor: Optional[str] = Query(None),
-    device_id: Optional[str] = Query(None),
-    event_type: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=200)
+    cursor: str | None = Query(None),
+    device_id: str | None = Query(None),
+    event_type: str | None = Query(None),
+    severity: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    principal: Annotated[Principal, Depends(require_role("auditor"))] = None,
 ):
     conn = get_connection()
-    cur = conn.cursor()
-    query = "SELECT * FROM security_events"
-    clauses = []
-    params = []
-    if device_id:
-        clauses.append("device_id = ?")
-        params.append(device_id)
-    if event_type:
-        clauses.append("event_type = ?")
-        params.append(event_type)
-    if clauses:
-        query += " WHERE " + " AND ".join(clauses)
-    query += " ORDER BY occurred_at DESC LIMIT ?"
-    params.append(limit)
-    rows = cur.execute(query, params).fetchall()
-    items = []
-    for r in rows:
-        items.append({
-            "id": r["id"],
-            "device_id": r["device_id"],
-            "event_type": r["event_type"],
-            "severity": r["severity"],
-            "occurred_at": r["occurred_at"],
-            "source": r["source"],
-            "response_state": r["response_state"]
-        })
-    conn.close()
-    return {"items": items, "next_cursor": None}
+    try:
+        query = "SELECT * FROM security_events WHERE 1=1"
+        params: list = []
+        if device_id:
+            query += " AND device_id = ?"
+            params.append(device_id)
+        if event_type:
+            query += " AND event_type = ?"
+            params.append(event_type)
+        if severity:
+            query += " AND severity = ?"
+            params.append(severity)
+        decoded = decode_cursor(cursor)
+        if decoded:
+            occurred_at, row_id = decoded
+            query += " AND (occurred_at < ? OR (occurred_at = ? AND id < ?))"
+            params.extend([occurred_at, occurred_at, row_id])
+        query += " ORDER BY occurred_at DESC, id DESC LIMIT ?"
+        params.append(limit + 1)
+        rows = conn.execute(query, params).fetchall()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        items = []
+        for row in rows:
+            item = {
+                "id": row["id"],
+                "device_id": row["device_id"],
+                "event_type": row["event_type"],
+                "severity": row["severity"],
+                "occurred_at": row["occurred_at"],
+                "source": row["source"],
+                "response_state": row["response_state"],
+            }
+            if row["details_json"]:
+                item["details"] = decode_details(row["details_json"])
+            items.append(item)
+        next_cursor = None
+        if has_more and rows:
+            next_cursor = encode_cursor(rows[-1]["occurred_at"], rows[-1]["id"])
+        return {"items": items, "next_cursor": next_cursor}
+    finally:
+        conn.close()
+
 
 @router.get("/audit-events")
 def list_audit_events(
-    cursor: Optional[str] = Query(None),
-    actor_user_id: Optional[str] = Query(None),
-    action: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=200)
+    cursor: str | None = Query(None),
+    actor_user_id: str | None = Query(None),
+    action: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    principal: Annotated[Principal, Depends(require_role("auditor"))] = None,
 ):
     conn = get_connection()
-    cur = conn.cursor()
-    query = "SELECT * FROM admin_audit_events"
-    clauses = []
-    params = []
-    if actor_user_id:
-        clauses.append("actor_user_id = ?")
-        params.append(actor_user_id)
-    if action:
-        clauses.append("action = ?")
-        params.append(action)
-    if clauses:
-        query += " WHERE " + " AND ".join(clauses)
-    query += " ORDER BY created_at DESC LIMIT ?"
-    params.append(limit)
-    rows = cur.execute(query, params).fetchall()
-    items = []
-    for r in rows:
-        items.append({
-            "id": r["id"],
-            "actor_user_id": r["actor_user_id"],
-            "action": r["action"],
-            "target_type": r["target_type"],
-            "target_id": r["target_id"],
-            "details": json.loads(r["details_json"]) if r["details_json"] else {},
-            "created_at": r["created_at"]
-        })
-    conn.close()
-    return {"items": items, "next_cursor": None}
+    try:
+        query = "SELECT * FROM admin_audit_events WHERE 1=1"
+        params: list = []
+        if actor_user_id:
+            query += " AND actor_user_id = ?"
+            params.append(actor_user_id)
+        if action:
+            query += " AND action = ?"
+            params.append(action)
+        decoded = decode_cursor(cursor)
+        if decoded:
+            created_at, row_id = decoded
+            query += " AND (created_at < ? OR (created_at = ? AND id < ?))"
+            params.extend([created_at, created_at, row_id])
+        query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(limit + 1)
+        rows = conn.execute(query, params).fetchall()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        items = []
+        for row in rows:
+            items.append(
+                {
+                    "id": row["id"],
+                    "actor_user_id": row["actor_user_id"],
+                    "action": row["action"],
+                    "target_type": row["target_type"],
+                    "target_id": row["target_id"],
+                    "details": decode_details(row["details_json"]),
+                    "created_at": row["created_at"],
+                    "prev_hash": row["prev_hash"],
+                    "record_hash": row["record_hash"],
+                }
+            )
+        next_cursor = None
+        if has_more and rows:
+            next_cursor = encode_cursor(rows[-1]["created_at"], rows[-1]["id"])
+        return {"items": items, "next_cursor": next_cursor}
+    finally:
+        conn.close()
+
+
+@router.get("/audit-events/verify")
+def verify_audit(
+    principal: Annotated[Principal, Depends(require_role("auditor"))] = None,
+):
+    conn = get_connection()
+    try:
+        return verify_audit_chain(conn)
+    finally:
+        conn.close()

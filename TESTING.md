@@ -1,5 +1,44 @@
 # WorkGuard Testing and Acceptance Plan
 
+## 0. Current automated suite
+
+The repository currently ships control-plane, signing-vector, console-safety
+and seed-safety tests. The endpoint simulator is a manual harness and is not
+covered by an automated test. Run the suite from `control-api` with the pinned
+virtual environment:
+
+```powershell
+..\.venv\Scripts\python.exe -m pytest
+..\.venv\Scripts\python.exe -m ruff check app tests
+```
+
+The suite uses temporary databases, token files, and signing keys, and covers:
+
+- `tests/test_signing.py` — valid envelope verification, tampering, wrong
+  device, expiry/not-yet-valid, unknown key id, spec version, downgrade,
+  unknown envelope fields, schema validation.
+- `tests/test_api.py` — health, policy lifecycle, author/approver separation,
+  draft version promotion, rollback as `N+1` (and rejection while a draft is
+  pending), invalid settings, RBAC, event validation and idempotency,
+  exceptions (including compliance coverage), publish-time compliance
+  re-derivation, results for an old version not satisfying a new policy,
+  monotonic observed versions, invalid cursors, stale recovery, audit-detail
+  integrity, and audit-chain tamper detection.
+- `tests/test_agent_auth.py` — bad tokens, revocation, credential rotation,
+  single-use enrollment and post-enrollment policy fetch.
+- `tests/test_admin_web.py` — console has no inline handlers or HTML sinks,
+  is served with a strict script CSP, calls the implemented lifecycle routes,
+  and does not repeat removed marketing claims.
+- `tests/test_signing_vectors.py` — the static `SIGNING_SPEC.md` §9 vectors,
+  including valid, tampered, wrong-device, expired, downgrade and unknown-field
+  cases.
+- `tests/test_seed.py` — non-local startup creates no demo devices, policies or
+  audit rows and writes no plaintext simulator token file.
+
+Not covered by automation yet: a live OIDC provider, PostgreSQL, real Windows
+provider read-back, mTLS, MSI/signing, SIEM export, and multi-tenant isolation.
+The acceptance matrix below remains the gate for those stages.
+
 ## 1. Test stages
 
 - Unit tests: policy parsing, state machine, RBAC decisions, version validation and event schemas.

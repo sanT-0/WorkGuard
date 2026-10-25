@@ -1,292 +1,382 @@
-"""
-WorkGuard Windows Endpoint Agent Simulator
-Implements:
-- Device enrollment with one-time code
-- TPM-backed key simulation
-- Signed policy retrieval & Ed25519 cryptographic verification (RFC 8785 canonical JSON)
-- Windows control simulation: Removable Storage (USB), BitLocker, App Control, Defender
-- Read-back verification and control-results reporting
-- Periodic heartbeat and security event upload
+"""WorkGuard Windows Endpoint Agent Simulator (development harness).
+
+This is *not* the Windows service.  It exercises the real control-plane
+contract: device-token authentication, SIGNING_SPEC envelope verification,
+schema validation, read-back result reporting and event upload.  Enforcement
+results are simulated and labelled as such.
+
+Usage:
+    python simulator.py sync
+    python simulator.py heartbeat
+    python simulator.py usb
+    python simulator.py enroll WG-...
+    python simulator.py daemon
 """
 
-import sys, os, time, json, urllib.request, urllib.error
-from datetime import datetime, timezone
+from __future__ import annotations
 
-# Import shared crypto module from control-api
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "control-api"))
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import UTC, datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+CONTROL_API = HERE.parent / "control-api"
+sys.path.insert(0, str(CONTROL_API))
+
 try:
-    from app.crypto import verify_envelope, canonical_json_bytes
-except Exception as e:
-    print("Notice: Importing crypto from sibling path failed, defining standalone verifier:", e)
-    def verify_envelope(envelope, sig, pk=None):
-        return True
+    from app.policy_verify import PolicyVerificationError, verify_envelope
+    from app.validation import validate_policy
+except Exception as exc:  # noqa: BLE001
+    print(f"[FATAL] Shared verification modules are unavailable: {exc}")
+    print("Install control-api/requirements.txt and run from the repository.")
+    raise SystemExit(2) from exc
 
-SERVER_URL = "http://127.0.0.1:8000/api/v1"
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), "agent_identity.json")
+SERVER_URL = os.getenv("WG_SERVER_URL", "http://127.0.0.1:8000/api/v1").rstrip("/")
+IDENTITY_FILE = Path(
+    os.getenv("WG_IDENTITY_FILE", str(HERE / "agent_identity.json"))
+)
+TOKEN_FILE = Path(
+    os.getenv(
+        "WG_DEVICE_TOKEN_FILE",
+        str(CONTROL_API / ".dev-device-tokens.json"),
+    )
+)
+DEFAULT_DEVICE_ID = os.getenv("WG_DEVICE_ID", "dev-sim-001")
+
+
+def _iso_now() -> str:
+    return datetime.now(UTC).isoformat()
+
 
 class WorkGuardAgent:
-    def __init__(self, device_id="dev-sim-001", server_url=SERVER_URL):
+    def __init__(self, device_id: str | None = None, server_url: str = SERVER_URL):
         self.server_url = server_url
-        self.device_id = device_id
+        self.device_id = device_id or DEFAULT_DEVICE_ID
         self.os_version = "Windows 11 Enterprise (23H2)"
         self.os_edition = "Windows 11 Enterprise"
-        self.agent_version = "1.0.0"
-        self.applied_policy_version = 1
+        self.agent_version = "1.1.0"
+        self.device_token: str | None = None
+        self.last_applied_version = 0
+        self.last_envelope: dict | None = None
         self.load_identity()
 
-    def load_identity(self):
-        if os.path.exists(CONFIG_FILE):
+    # ------------------------------------------------------------------ state
+    def load_identity(self) -> None:
+        if IDENTITY_FILE.exists():
             try:
-                with open(CONFIG_FILE, "r") as f:
-                    data = json.load(f)
-                    self.device_id = data.get("device_id", self.device_id)
-            except Exception:
+                data = json.loads(IDENTITY_FILE.read_text(encoding="utf-8"))
+                self.device_id = data.get("device_id", self.device_id)
+                self.device_token = data.get("device_token")
+                self.last_applied_version = int(data.get("last_applied_version", 0))
+                self.last_envelope = data.get("last_envelope")
+            except Exception:  # noqa: BLE001
                 pass
 
-    def save_identity(self):
-        with open(CONFIG_FILE, "w") as f:
-            json.dump({"device_id": self.device_id, "enrolled_at": datetime.now(timezone.utc).isoformat()}, f)
+        if not self.device_token and TOKEN_FILE.exists():
+            try:
+                tokens = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
+                self.device_token = tokens.get(self.device_id)
+            except Exception:  # noqa: BLE001
+                pass
 
-    def _http_post(self, path, payload):
-        url = f"{self.server_url}{path}"
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=data,
-            headers={
-                "Content-Type": "application/json",
-                "x-device-id": self.device_id
-            }
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                body = resp.read().decode("utf-8")
-                return resp.status, json.loads(body) if body else {}
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8")
-            return e.code, json.loads(body) if body else {}
-        except Exception as e:
-            return 0, {"error": str(e)}
-
-    def _http_get(self, path):
-        url = f"{self.server_url}{path}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-device-id": self.device_id
-            }
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                body = resp.read().decode("utf-8")
-                return resp.status, json.loads(body) if body else {}
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8")
-            return e.code, json.loads(body) if body else {}
-        except Exception as e:
-            return 0, {"error": str(e)}
-
-    def enroll(self, enrollment_code):
-        print(f"[*] Attempting enrollment with code: {enrollment_code}...")
-        payload = {
-            "enrollment_code": enrollment_code.strip(),
-            "device_public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...",
-            "agent_version": self.agent_version,
-            "os_version": self.os_version,
-            "os_edition": self.os_edition
-        }
-        status, res = self._http_post("/agent/enroll", payload)
-        if status == 201:
-            self.device_id = res["device_id"]
-            self.save_identity()
-            print(f"[+] Enrollment successful! Assigned Device ID: {self.device_id}")
-            return True
-        else:
-            print(f"[-] Enrollment failed ({status}): {res.get('detail', res)}")
-            return False
-
-    def send_heartbeat(self):
-        print(f"[*] Sending heartbeat for device: {self.device_id}...")
-        payload = {
-            "agent_version": self.agent_version,
-            "os_version": self.os_version,
-            "os_edition": self.os_edition,
-            "current_policy_version": self.applied_policy_version,
-            "observed_at": datetime.now(timezone.utc).isoformat(),
-            "endpoint_protection_state": "active"
-        }
-        status, res = self._http_post("/agent/heartbeat", payload)
-        if status == 202:
-            print(f"[+] Heartbeat acknowledged at {res.get('last_seen_at')}")
-            return True
-        else:
-            print(f"[-] Heartbeat rejected ({status}): {res}")
-            return False
-
-    def fetch_and_apply_policy(self):
-        print(f"[*] Fetching signed policy from control plane...")
-        status, envelope = self._http_get("/agent/policies/current")
-        if status != 200:
-            print(f"[-] Failed to fetch policy ({status}): {envelope}")
-            return False
-
-        pol_ver = envelope.get("policy_version")
-        pol_obj = envelope.get("policy")
-        sig = envelope.get("signature")
-        algo = envelope.get("algorithm")
-
-        print(f"[+] Received policy '{pol_obj.get('name')}' (v{pol_ver})")
-        print(f"    - Algorithm: {algo}")
-        print(f"    - SHA-256 Digest: {envelope.get('digest_sha256')}")
-
-        # Anti-downgrade verification (F-007)
-        if pol_ver < self.applied_policy_version:
-            print(f"[!] SECURITY ALERT: Rejected policy version {pol_ver} < currently applied {self.applied_policy_version} (Anti-downgrade violation)")
-            return False
-
-        # Ed25519 signature verification (F-001)
-        valid_sig = verify_envelope(pol_obj, sig)
-        if not valid_sig:
-            print("[!] CRITICAL: Ed25519 signature verification FAILED! Policy has been tampered with or key is invalid.")
-            return False
-        print("[+] Ed25519 cryptographic signature VERIFIED successfully over RFC 8785 canonical bytes!")
-
-        # Apply controls and simulate read-back verification (F-005, F-009)
-        controls = pol_obj.get("controls", [])
-        results = []
-        now_iso = datetime.now(timezone.utc).isoformat()
-        
-        for c in controls:
-            cid = c.get("control_id")
-            settings = c.get("settings", {})
-            print(f"    - Applying control [{cid}]: settings={settings}...")
-            
-            # Simulate readback verification
-            if cid == "removable_storage":
-                results.append({
-                    "control_id": cid,
-                    "status": "enforced",
-                    "provider": "Windows Defender Removable Storage Filter (WpdFs)",
-                    "observed_at": now_iso,
-                    "error_code": None,
-                    "safe_details": "USB mass storage Deny policy active in registry"
-                })
-            elif cid == "disk_encryption":
-                results.append({
-                    "control_id": cid,
-                    "status": "enforced",
-                    "provider": "BitLocker CSP AES-256-XTS",
-                    "observed_at": now_iso,
-                    "error_code": None,
-                    "safe_details": "Volume C: fully encrypted with TPM protector"
-                })
-            elif cid == "application_control":
-                # Check Windows edition
-                st = "unsupported" if "Pro" in self.os_edition else "enforced"
-                results.append({
-                    "control_id": cid,
-                    "status": st,
-                    "provider": "AppLocker / App Control for Business",
-                    "observed_at": now_iso,
-                    "error_code": None if st == "enforced" else "EDITION_UNSUPPORTED",
-                    "safe_details": "Enforced via WDAC CIP binary" if st == "enforced" else "AppLocker requires Windows Enterprise edition"
-                })
-            elif cid == "endpoint_protection":
-                results.append({
-                    "control_id": cid,
-                    "status": "enforced",
-                    "provider": "Microsoft Defender Antivirus 4.18.24080.9",
-                    "observed_at": now_iso,
-                    "error_code": None,
-                    "safe_details": "Signatures up-to-date; real-time protection running"
-                })
-            elif cid == "network_policy":
-                results.append({
-                    "control_id": cid,
-                    "status": "enforced",
-                    "provider": "Windows Advanced Firewall",
-                    "observed_at": now_iso,
-                    "error_code": None,
-                    "safe_details": "Default inbound block active; git remotes restricted"
-                })
-
-        # Submit verified results
-        print(f"[*] Reporting per-control read-back results to control plane...")
-        res_payload = {
-            "policy_version": pol_ver,
-            "observed_at": now_iso,
-            "controls": results
-        }
-        res_status, res_body = self._http_post("/agent/policy-results", res_payload)
-        if res_status == 202:
-            self.applied_policy_version = pol_ver
-            print(f"[+] Policy results accepted! Derived compliance state: {res_body.get('derived_device_status')}")
-            return True
-        else:
-            print(f"[-] Policy results rejected ({res_status}): {res_body}")
-            return False
-
-    def simulate_usb_block(self):
-        print(f"[*] Simulating unauthorized USB storage insertion on {self.device_id}...")
-        now_iso = datetime.now(timezone.utc).isoformat()
-        event_payload = {
-            "events": [
+    def save_identity(self) -> None:
+        IDENTITY_FILE.write_text(
+            json.dumps(
                 {
-                    "id": None,
                     "device_id": self.device_id,
-                    "event_type": "usb.device.blocked",
-                    "severity": "high",
-                    "occurred_at": now_iso,
-                    "source": "removable_storage",
-                    "response_state": "blocked"
-                }
-            ]
-        }
-        status, res = self._http_post("/agent/events:batch", event_payload)
+                    "device_token": self.device_token,
+                    "last_applied_version": self.last_applied_version,
+                    "last_envelope": self.last_envelope,
+                    "saved_at": _iso_now(),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            os.chmod(IDENTITY_FILE, 0o600)
+        except OSError:
+            pass
+
+    # ------------------------------------------------------------------- HTTP
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if self.device_token:
+            headers["Authorization"] = f"Bearer {self.device_token}"
+        return headers
+
+    def _http_post(self, path: str, payload: dict | None = None):
+        data = json.dumps(payload or {}).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.server_url}{path}",
+            data=data,
+            headers=self._headers(),
+            method="POST",
+        )
+        return self._send(request)
+
+    def _http_get(self, path: str):
+        request = urllib.request.Request(
+            f"{self.server_url}{path}",
+            headers=self._headers(),
+            method="GET",
+        )
+        return self._send(request)
+
+    def _send(self, request: urllib.request.Request):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                body = response.read().decode("utf-8")
+                return response.status, json.loads(body) if body else {}
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8")
+            try:
+                parsed = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                parsed = {"detail": body}
+            return exc.code, parsed
+        except Exception as exc:  # noqa: BLE001
+            return 0, {"error": str(exc)}
+
+    # -------------------------------------------------------------- enrolment
+    def enroll(self, enrollment_code: str) -> bool:
+        print(f"[*] Enrolling {self.device_id} with a one-time code...")
+        status, response = self._http_post(
+            "/agent/enroll",
+            {
+                "enrollment_code": enrollment_code.strip(),
+                "agent_version": self.agent_version,
+                "os_version": self.os_version,
+                "os_edition": self.os_edition,
+            },
+        )
+        if status != 201:
+            print(f"[-] Enrollment failed ({status}): {response}")
+            return False
+
+        self.device_id = response["device_id"]
+        self.device_token = response["device_token"]
+        self.last_applied_version = 0
+        self.last_envelope = None
+        self.save_identity()
+        print(f"[+] Enrolled. Device ID: {self.device_id}")
+        print("    Store the device token securely; it is shown once.")
+        return True
+
+    # -------------------------------------------------------------- heartbeat
+    def send_heartbeat(self) -> bool:
+        if not self.device_token:
+            print("[-] No device token. Run: python simulator.py enroll WG-...")
+            return False
+        status, response = self._http_post(
+            "/agent/heartbeat",
+            {
+                "agent_version": self.agent_version,
+                "os_version": self.os_version,
+                "os_edition": self.os_edition,
+                "current_policy_version": self.last_applied_version or None,
+                "observed_at": _iso_now(),
+                "endpoint_protection_state": "unknown",
+            },
+        )
         if status == 202:
-            print("[+] USB insertion BLOCKED by WorkGuard agent and reported to control plane!")
+            print(f"[+] Heartbeat acknowledged: {response.get('last_seen_at')}")
             return True
+        print(f"[-] Heartbeat rejected ({status}): {response}")
         return False
 
-def main():
+    # -------------------------------------------------------------- policy
+    def _jwks(self) -> dict:
+        status, response = self._http_get("/agent/keys")
+        if status != 200:
+            raise PolicyVerificationError(f"JWKS fetch failed ({status})")
+        return response
+
+    def fetch_and_apply_policy(self) -> bool:
+        if not self.device_token:
+            print("[-] No device token. Run: python simulator.py enroll WG-...")
+            return False
+
+        status, envelope = self._http_get("/agent/policies/current")
+        if status == 204:
+            print("[*] Control plane has no published policy for this device.")
+            return True
+        if status != 200:
+            print(f"[-] Policy fetch failed ({status}): {envelope}")
+            return False
+
+        try:
+            jwks = self._jwks()
+            verified = verify_envelope(
+                envelope,
+                jwks,
+                self.device_id,
+                last_applied_version=self.last_applied_version,
+            )
+            validate_policy(verified.policy)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[!] POLICY REJECTED: {exc}")
+            self._report_event(
+                "policy.rejected",
+                "high",
+                "policy_verifier",
+                "rejected",
+            )
+            return False
+
+        policy = verified.policy
+        print(
+            f"[+] Verified policy '{policy['name']}' v{verified.policy_version} "
+            f"(kid={verified.key_id}, digest={envelope['digest_sha256'][:16]}...)"
+        )
+
+        results = self._simulate_readback(policy)
+        result_status, result_body = self._http_post(
+            "/agent/policy-results",
+            {
+                "policy_version": verified.policy_version,
+                "observed_at": _iso_now(),
+                "controls": results,
+            },
+        )
+        if result_status != 202:
+            print(f"[-] Policy results rejected ({result_status}): {result_body}")
+            return False
+
+        self.last_applied_version = verified.policy_version
+        self.last_envelope = envelope
+        self.save_identity()
+        print(
+            "[+] Read-back results accepted. Derived device status: "
+            f"{result_body.get('derived_device_status')}"
+        )
+        return True
+
+    def _simulate_readback(self, policy: dict) -> list[dict]:
+        """Simulation only.  The real service reads each provider's state."""
+
+        now = _iso_now()
+        results = []
+        for control in policy.get("controls", []):
+            control_id = control["control_id"]
+            status = "enforced"
+            provider = "Simulated Windows provider"
+            error_code = None
+            details = "Simulated read-back; not evidence from a real endpoint"
+
+            if control_id == "removable_storage":
+                provider = "Windows Defender Removable Storage Filter (simulated)"
+            elif control_id == "disk_encryption":
+                provider = "BitLocker CSP AES-256-XTS (simulated)"
+            elif control_id == "application_control":
+                provider = "AppLocker / App Control for Business (simulated)"
+                if "Pro" in self.os_edition:
+                    status = "unsupported"
+                    error_code = "EDITION_UNSUPPORTED"
+                    details = "AppLocker requires Windows Enterprise edition"
+            elif control_id == "endpoint_protection":
+                provider = "Microsoft Defender Antivirus (simulated)"
+            elif control_id == "network_policy":
+                provider = "Windows Advanced Firewall (simulated)"
+            elif control_id == "endpoint_dlp":
+                status = "not_configured"
+                error_code = "DLP_PROVIDER_NOT_CONFIGURED"
+                details = "No endpoint DLP integration is configured in this proof of concept"
+
+            results.append(
+                {
+                    "control_id": control_id,
+                    "status": status,
+                    "provider": provider,
+                    "observed_at": now,
+                    "error_code": error_code,
+                    "safe_details": details,
+                }
+            )
+        return results
+
+    # ---------------------------------------------------------------- events
+    def _report_event(
+        self, event_type: str, severity: str, source: str, response_state: str
+    ) -> bool:
+        status, response = self._http_post(
+            "/agent/events:batch",
+            {
+                "events": [
+                    {
+                        "event_type": event_type,
+                        "severity": severity,
+                        "occurred_at": _iso_now(),
+                        "source": source,
+                        "response_state": response_state,
+                    }
+                ]
+            },
+        )
+        if status != 202:
+            print(f"[-] Event upload failed ({status}): {response}")
+            return False
+        return True
+
+    def simulate_usb_block(self) -> bool:
+        print(f"[*] Simulating a blocked USB storage insertion on {self.device_id}...")
+        ok = self._report_event(
+            "usb.device.blocked", "high", "removable_storage", "blocked"
+        )
+        if ok:
+            print("[+] Blocked event accepted by the control plane.")
+        return ok
+
+    # ---------------------------------------------------------------- daemon
+    def daemon(self) -> None:
+        print("[*] Starting simulator daemon (Ctrl+C to stop)...")
+        self.send_heartbeat()
+        self.fetch_and_apply_policy()
+        while True:
+            time.sleep(60)
+            self.send_heartbeat()
+            self.fetch_and_apply_policy()
+
+
+def main() -> None:
     agent = WorkGuardAgent()
-    print("=" * 65)
-    print("       WorkGuard Windows Endpoint Agent Simulator")
-    print(f"       Device ID: {agent.device_id}")
-    print(f"       OS: {agent.os_version}")
-    print(f"       Target API: {agent.server_url}")
-    print("=" * 65)
+    print("=" * 68)
+    print("       WorkGuard Endpoint Agent Simulator (verification harness)")
+    print(f"       Device: {agent.device_id}")
+    print(f"       API:    {agent.server_url}")
+    print(f"       Token:  {'configured' if agent.device_token else 'MISSING'}")
+    print("=" * 68)
 
     if len(sys.argv) > 1:
-        cmd = sys.argv[1].lower()
-        if cmd == "heartbeat":
+        command = sys.argv[1].lower()
+        if command == "heartbeat":
             agent.send_heartbeat()
-        elif cmd == "sync":
+        elif command == "sync":
             agent.send_heartbeat()
             agent.fetch_and_apply_policy()
-        elif cmd == "usb":
+        elif command == "usb":
             agent.simulate_usb_block()
-        elif cmd == "enroll" and len(sys.argv) > 2:
+        elif command == "enroll" and len(sys.argv) > 2:
             agent.enroll(sys.argv[2])
-        elif cmd == "daemon":
-            print("[*] Starting continuous agent simulation daemon (Ctrl+C to stop)...")
-            agent.send_heartbeat()
-            agent.fetch_and_apply_policy()
-            while True:
-                time.sleep(30)
-                agent.send_heartbeat()
+        elif command == "daemon":
+            agent.daemon()
+        else:
+            print("Unknown command. Use: heartbeat | sync | usb | enroll <code> | daemon")
         return
 
-    # Interactive menu
     while True:
-        print("\nActions:")
-        print("1. Send Heartbeat")
-        print("2. Pull & Verify Signed Policy (Ed25519 + RFC 8785)")
-        print("3. Simulate Unauthorized USB Block & Report Security Event")
-        print("4. Enroll New Device with One-Time Code")
-        print("5. Run Full Automated Cycle")
+        print("\n1. Heartbeat")
+        print("2. Fetch, verify and apply policy")
+        print("3. Simulate blocked USB insertion")
+        print("4. Enroll with one-time code")
+        print("5. Full cycle")
         print("0. Exit")
-        choice = input("\nSelect action [0-5]: ").strip()
+        choice = input("Select [0-5]: ").strip()
         if choice == "1":
             agent.send_heartbeat()
         elif choice == "2":
@@ -294,7 +384,7 @@ def main():
         elif choice == "3":
             agent.simulate_usb_block()
         elif choice == "4":
-            code = input("Enter one-time enrollment code (e.g. WG-XXXX...): ").strip()
+            code = input("Enrollment code: ").strip()
             agent.enroll(code)
         elif choice == "5":
             agent.send_heartbeat()
@@ -302,6 +392,7 @@ def main():
             agent.simulate_usb_block()
         elif choice == "0":
             break
+
 
 if __name__ == "__main__":
     main()

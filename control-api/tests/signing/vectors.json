@@ -1,0 +1,1137 @@
+{
+  "description": "Static SIGNING_SPEC.md section 9 vectors. The signing key used to generate these vectors was discarded; only the public JWKS is stored.",
+  "jwks": {
+    "keys": [
+      {
+        "alg": "EdDSA",
+        "crv": "Ed25519",
+        "kid": "wg-test-vectors-2026",
+        "kty": "OKP",
+        "use": "sig",
+        "x": "24ICZnFE26a3CBqLtmbaqzpyHRvVifRkh7puHU1_hwQ"
+      }
+    ]
+  },
+  "vectors": [
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "gvkjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "accept",
+      "expected_device": "device-1",
+      "last_applied_version": 1,
+      "name": "valid",
+      "reason": ""
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "gvkjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "accept",
+      "expected_device": "device-1",
+      "last_applied_version": 2,
+      "name": "valid_same_version",
+      "reason": ""
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "allow",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "gvkjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "tampered_policy",
+      "reason": "signature verification failed"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "g/kjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "bad_signature",
+      "reason": "signature verification failed"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "FR7H9dynubB+HHxcTyhCA6vVEV3dA7QiHmLfAI84KEwWc5EchPHH9TS2HIrZcmWQzFGzjVJr0eV0bveKHWZLCg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "digest_mismatch",
+      "reason": "digest does not match"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "9e02edf78641e70c94b4127afc78d68fccfc4e75bcc48f38e2732ca3e340a561",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 3,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "B7bQgjePHbfIPMtgZipom3hOZIXnj6tXyDKaflhMrvoPDChgrr6UDbLGnQgKTSAiTZQtqtCj5Gqw3lIQBn2QBA==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "inner_version_mismatch",
+      "reason": "inner policy_version"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "gvkjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": 3,
+      "name": "downgrade",
+      "reason": "downgrade"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2025-06-01T00:00:00Z",
+        "issued_at": "2025-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "AAgGgInln/yFbETD0B3bkRAVAIfN8tJIStzuid5cfILaHWhU8vNNy5XF5rBhmingPWtrXRWFA7UgKTG2/AlEBg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "expired",
+      "reason": "expired"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2028-01-01T00:00:00Z",
+        "issued_at": "2027-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "x2SUYp10LDSA7CyXsunXbiv8N1YJAnoTtoKDiK8bC1n0N4mtV45tqUAyert4z6oXidqgEN8PbOZ1HPrSt5kpAQ==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "not_yet_valid",
+      "reason": "not valid yet"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "gvkjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-2",
+      "last_applied_version": null,
+      "name": "wrong_device",
+      "reason": "targeted"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "unknown-key",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "gvkjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "1",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "unknown_key_id",
+      "reason": "unknown key_id"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "gvkjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "99",
+        "target_device_id": "device-1"
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "bad_spec_version",
+      "reason": "spec_version"
+    },
+    {
+      "envelope": {
+        "digest_sha256": "83ddcf65a37576062329a2dbc9534e70db8ccf8a9fd194618a5cc34cd0a1fffc",
+        "expires_at": "2027-01-01T00:00:00Z",
+        "issued_at": "2026-01-01T00:00:00Z",
+        "key_id": "wg-test-vectors-2026",
+        "policy": {
+          "controls": [
+            {
+              "control_id": "removable_storage",
+              "required": true,
+              "settings": {
+                "action": "deny",
+                "audit_only": false,
+                "device_classes": [
+                  "USB_MSD",
+                  "CD_DVD"
+                ]
+              }
+            },
+            {
+              "control_id": "disk_encryption",
+              "required": true,
+              "settings": {
+                "min_cipher_strength": "aes_256",
+                "require_bitlocker": true,
+                "require_tpm": true
+              }
+            },
+            {
+              "control_id": "application_control",
+              "required": true,
+              "settings": {
+                "allowed_paths": [
+                  "C:\\Program Files\\*",
+                  "C:\\Program Files (x86)\\*"
+                ],
+                "allowed_publishers": [
+                  "Microsoft Corporation",
+                  "Google LLC",
+                  "Git for Windows"
+                ],
+                "mode": "enforce"
+              }
+            },
+            {
+              "control_id": "endpoint_protection",
+              "required": true,
+              "settings": {
+                "max_signature_age_days": 3,
+                "require_antivirus": true,
+                "require_realtime_protection": true
+              }
+            },
+            {
+              "control_id": "network_policy",
+              "required": true,
+              "settings": {
+                "authorized_git_remotes": [
+                  "github.com/company-org/*"
+                ],
+                "block_inbound": true,
+                "require_firewall": true
+              }
+            }
+          ],
+          "description": "Baseline enforcing USB removable-storage block, BitLocker AES-256, application control, endpoint protection and host firewall.",
+          "name": "Standard Remote Developer Baseline",
+          "policy_id": "00000000-0000-4000-8000-000000000001",
+          "policy_version": 2,
+          "rollout_mode": "enforce",
+          "schema_version": "1.0.0"
+        },
+        "policy_id": "00000000-0000-4000-8000-000000000001",
+        "policy_version": 2,
+        "schema_version": "1.0.0",
+        "signature": "gvkjrhG5hQTI2Y1gzQkeG8yvbiRysFnQLsSycjNO8CyY1DsrHTi/R5XhZ18EFAoN7dvyGZ7PXWmbx/lugrUSAg==",
+        "spec_version": "1",
+        "target_device_id": "device-1",
+        "unexpected": true
+      },
+      "expect": "reject",
+      "expected_device": "device-1",
+      "last_applied_version": null,
+      "name": "unknown_envelope_field",
+      "reason": "unknown fields"
+    }
+  ],
+  "verification_now": "2026-06-01T00:00:00Z"
+}

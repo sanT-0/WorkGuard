@@ -1,841 +1,2454 @@
 openapi: 3.1.0
 info:
   title: WorkGuard Control API
-  version: 1.0.0-draft
-  description: >-
-    Draft API contract for managing policies and receiving endpoint status.
-    This specification is a design artifact, not a deployed or production-ready API.
-servers:
-  - url: https://workguard.example/api/v1
-    description: Placeholder production URL; replace during deployment.
-tags:
-  - name: Health
-  - name: Admin Devices
-  - name: Admin Policies
-  - name: Admin Events
-  - name: Admin Audit
-  - name: Admin Exceptions
-  - name: Agent
+  description: Machine-readable contract generated from the implemented FastAPI application. Administrator routes require
+    an OIDC bearer token, or local-only X-Dev-User / X-Dev-Role headers when APP_ENV=local, AUTH_MODE=dev and ALLOW_DEV_AUTH=1.
+    Agent routes require a per-device bearer token obtained from enrollment. See API.md and SIGNING_SPEC.md for normative
+    behaviour that is not expressible in OpenAPI, including the signed policy envelope and compliance derivation.
+  version: 1.1.0
 paths:
-  /health/live:
+  /:
     get:
-      tags: [Health]
-      summary: Liveness probe
+      summary: Api Root
+      operationId: api_root_api_v1_get
       responses:
         '200':
-          description: Process is alive
+          description: Successful Response
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: string, const: alive }
-  /health/ready:
-    get:
-      tags: [Health]
-      summary: Readiness probe
-      responses:
-        '200': { description: Required dependencies are ready }
-        '503': { description: Not ready }
-  /admin/devices:
-    get:
-      tags: [Admin Devices]
-      security: [{ oidcBearer: [] }]
-      summary: List managed devices
-      parameters:
-        - in: query
-          name: cursor
-          schema: { type: string, maxLength: 500 }
-        - in: query
-          name: limit
-          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
-        - in: query
-          name: status
-          schema: { type: string, enum: [enrolled, compliant, noncompliant, stale, revoked, unknown] }
-      responses:
-        '200':
-          description: Page of devices
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: '#/components/schemas/DeviceSummary' }
-                  next_cursor: { type: [string, 'null'] }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /admin/devices/{device_id}:
-    get:
-      tags: [Admin Devices]
-      security: [{ oidcBearer: [] }]
-      summary: Read device details and verified control status
-      parameters:
-        - $ref: '#/components/parameters/DeviceId'
-      responses:
-        '200':
-          description: Device detail
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DeviceDetail' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /admin/devices/{device_id}/revoke:
-    post:
-      tags: [Admin Devices]
-      security: [{ oidcBearer: [] }]
-      summary: Revoke device credential and sensitive access
-      parameters:
-        - $ref: '#/components/parameters/DeviceId'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [reason]
-              additionalProperties: false
-              properties:
-                reason: { type: string, minLength: 3, maxLength: 500 }
-      responses:
-        '200':
-          description: Device revoked
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DeviceSummary' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-  /admin/enrollment-codes:
-    post:
-      tags: [Admin Devices]
-      security: [{ oidcBearer: [] }]
-      summary: Create short-lived, single-use enrollment code
-      description: The code is shown once, stored hashed, rate limited, and expires quickly.
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [expires_in_seconds]
-              additionalProperties: false
-              properties:
-                expires_in_seconds: { type: integer, minimum: 60, maximum: 600 }
-                requested_for_user_id: { type: [string, 'null'], format: uuid }
-                reason: { type: string, minLength: 3, maxLength: 500 }
-      responses:
-        '201':
-          description: Enrollment code created; return it only once
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [enrollment_code, expires_at]
-                properties:
-                  enrollment_code: { type: string, minLength: 20, maxLength: 200 }
-                  expires_at: { type: string, format: date-time }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /admin/policies:
-    get:
-      tags: [Admin Policies]
-      security: [{ oidcBearer: [] }]
-      summary: List policy records
-      responses:
-        '200':
-          description: Policy list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: '#/components/schemas/PolicySummary' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-    post:
-      tags: [Admin Policies]
-      security: [{ oidcBearer: [] }]
-      summary: Create a draft policy
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name, policy]
-              additionalProperties: false
-              properties:
-                name: { type: string, minLength: 1, maxLength: 120 }
-                policy: { $ref: '#/components/schemas/Policy' }
-                reason: { type: string, minLength: 3, maxLength: 500 }
-      responses:
-        '201':
-          description: Draft created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicySummary' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /admin/policies/{policy_id}:
-    get:
-      tags: [Admin Policies]
-      security: [{ oidcBearer: [] }]
-      summary: Read policy details and rollout status
-      parameters:
-        - name: policy_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: Policy details
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyDetail' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-    patch:
-      tags: [Admin Policies]
-      security: [{ oidcBearer: [] }]
-      summary: Edit draft policy
-      parameters:
-        - name: policy_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                name: { type: string, minLength: 1, maxLength: 120 }
-                policy: { $ref: '#/components/schemas/Policy' }
-                reason: { type: string, minLength: 3, maxLength: 500 }
-      responses:
-        '200':
-          description: Draft updated
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyDetail' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Conflict; cannot edit non-draft policy }
-  /admin/policies/{policy_id}/submit:
-    post:
-      tags: [Admin Policies]
-      security: [{ oidcBearer: [] }]
-      summary: Submit draft policy for review
-      parameters:
-        - name: policy_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '200':
-          description: Policy submitted for review
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicySummary' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Invalid lifecycle state transition }
-  /admin/policies/{policy_id}/approve:
-    post:
-      tags: [Admin Policies]
-      security: [{ oidcBearer: [] }]
-      summary: Approve policy as second authorized administrator
-      description: Must be an authorized approver distinct from the author (two-person rule).
-      parameters:
-        - name: policy_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [approval_notes]
-              additionalProperties: false
-              properties:
-                approval_notes: { type: string, minLength: 3, maxLength: 500 }
-      responses:
-        '200':
-          description: Policy approved
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicySummary' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Forbidden; author cannot approve their own policy }
-        '404': { $ref: '#/components/responses/NotFound' }
-  /admin/policies/{policy_id}/publish:
-    post:
-      tags: [Admin Policies]
-      security: [{ oidcBearer: [] }]
-      summary: Publish an approved policy version
-      description: Publication validates approval separation, schema, scope, signature and rollout safety.
-      parameters:
-        - name: policy_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [version, reason]
-              additionalProperties: false
-              properties:
-                version: { type: integer, minimum: 1 }
-                reason: { type: string, minLength: 3, maxLength: 500 }
-                rollout_group: { type: string, maxLength: 120 }
-      responses:
-        '202': { description: Policy publication accepted for rollout }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { description: Approval or policy version conflict }
-  /admin/policies/{policy_id}/rollback:
-    post:
-      tags: [Admin Policies]
-      security: [{ oidcBearer: [] }]
-      summary: Rollback policy to a prior approved version
-      description: Publishes a new policy_version (N+1) pointing to a previous safe version, preserving monotonic anti-downgrade.
-      parameters:
-        - name: policy_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [target_version, reason]
-              additionalProperties: false
-              properties:
-                target_version: { type: integer, minimum: 1 }
-                reason: { type: string, minLength: 3, maxLength: 500 }
-      responses:
-        '202':
-          description: Rollback published as new version
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicySummary' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-  /admin/events:
-    get:
-      tags: [Admin Events]
-      security: [{ oidcBearer: [] }]
-      summary: Search security events
-      parameters:
-        - in: query
-          name: cursor
-          schema: { type: string, maxLength: 500 }
-        - in: query
-          name: device_id
-          schema: { type: string, format: uuid }
-        - in: query
-          name: event_type
-          schema: { type: string, maxLength: 120 }
-        - in: query
-          name: from
-          schema: { type: string, format: date-time }
-        - in: query
-          name: to
-          schema: { type: string, format: date-time }
-        - in: query
-          name: limit
-          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
-      responses:
-        '200':
-          description: Events page
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: '#/components/schemas/SecurityEvent' }
-                  next_cursor: { type: [string, 'null'] }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
+              schema: {}
   /admin/audit-events:
     get:
-      tags: [Admin Audit]
-      security: [{ oidcBearer: [] }]
-      summary: Search administrator audit trail
+      tags:
+      - Admin Events
+      summary: List Audit Events
+      operationId: list_audit_events_api_v1_admin_audit_events_get
       parameters:
-        - in: query
-          name: cursor
-          schema: { type: string, maxLength: 500 }
-        - in: query
-          name: actor_user_id
-          schema: { type: string, format: uuid }
-        - in: query
-          name: action
-          schema: { type: string, maxLength: 100 }
-        - in: query
-          name: from
-          schema: { type: string, format: date-time }
-        - in: query
-          name: to
-          schema: { type: string, format: date-time }
-        - in: query
-          name: limit
-          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: actor_user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor User Id
+      - name: action
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Action
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
       responses:
         '200':
-          description: Page of audit events
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: '#/components/schemas/AdminAuditEvent' }
-                  next_cursor: { type: [string, 'null'] }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /admin/exceptions:
-    post:
-      tags: [Admin Exceptions]
-      security: [{ oidcBearer: [] }]
-      summary: Request or create a scoped policy exception
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/audit-events/verify:
+    get:
+      tags:
+      - Admin Events
+      summary: Verify Audit
+      operationId: verify_audit_api_v1_admin_audit_events_verify_get
       parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/devices:
+    get:
+      tags:
+      - Admin Devices
+      summary: List Devices
+      operationId: list_devices_api_v1_admin_devices_get
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/devices/{device_id}:
+    get:
+      tags:
+      - Admin Devices
+      summary: Get Device
+      operationId: get_device_api_v1_admin_devices__device_id__get
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Device Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceDetail'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/devices/{device_id}/revoke:
+    post:
+      tags:
+      - Admin Devices
+      summary: Revoke Device
+      operationId: revoke_device_api_v1_admin_devices__device_id__revoke_post
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Device Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [device_id, control_id, reason, expires_at]
-              additionalProperties: false
-              properties:
-                device_id: { type: string, format: uuid }
-                control_id: { type: string, maxLength: 100 }
-                reason: { type: string, minLength: 5, maxLength: 500 }
-                expires_at: { type: string, format: date-time }
+              $ref: '#/components/schemas/RevokeDeviceRequest'
       responses:
-        '201':
-          description: Exception created
+        '200':
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PolicyException' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/devices/{device_id}/rotate-credential:
+    post:
+      tags:
+      - Admin Devices
+      summary: Rotate Device Credential
+      operationId: rotate_device_credential_api_v1_admin_devices__device_id__rotate_credential_post
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Device Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateDeviceCredentialResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/enrollment-codes:
+    post:
+      tags:
+      - Admin Devices
+      summary: Create Enrollment Code
+      operationId: create_enrollment_code_api_v1_admin_enrollment_codes_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEnrollmentCodeRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentCodeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/events:
+    get:
+      tags:
+      - Admin Events
+      summary: List Events
+      operationId: list_events_api_v1_admin_events_get
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device Id
+      - name: event_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Event Type
+      - name: severity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Severity
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/exceptions:
+    get:
+      tags:
+      - Admin Exceptions
+      summary: List Exceptions
+      operationId: list_exceptions_api_v1_admin_exceptions_get
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device Id
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+    post:
+      tags:
+      - Admin Exceptions
+      summary: Create Exception
+      operationId: create_exception_api_v1_admin_exceptions_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExceptionRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExceptionSummary'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
   /admin/exceptions/{exception_id}/revoke:
     post:
-      tags: [Admin Exceptions]
-      security: [{ oidcBearer: [] }]
-      summary: Revoke an active policy exception
+      tags:
+      - Admin Exceptions
+      summary: Revoke Exception
+      operationId: revoke_exception_api_v1_admin_exceptions__exception_id__revoke_post
       parameters:
-        - name: exception_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/IdempotencyKey'
+      - name: exception_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Exception Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [reason]
-              additionalProperties: false
-              properties:
-                reason: { type: string, minLength: 3, maxLength: 500 }
+              $ref: '#/components/schemas/RevokeExceptionRequest'
       responses:
         '200':
-          description: Exception revoked
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PolicyException' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-  /agent/enroll:
-    post:
-      tags: [Agent]
-      summary: Exchange one-time enrollment code for a device identity
-      description: Rate limited; enrollment code is single-use. Binds subsequent calls to a client certificate.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [enrollment_code, device_public_key, agent_version, os_version]
-              additionalProperties: false
-              properties:
-                enrollment_code: { type: string, minLength: 20, maxLength: 200 }
-                device_public_key: { type: string, minLength: 20, maxLength: 5000 }
-                agent_version: { type: string, maxLength: 50 }
-                os_version: { type: string, maxLength: 200 }
-      responses:
-        '201':
-          description: Device enrolled; credential issuance method depends on selected PKI
+              schema: {}
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                type: object
-                required: [device_id, credential_enrollment_uri]
-                properties:
-                  device_id: { type: string, format: uuid }
-                  credential_enrollment_uri: { type: string, format: uri }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '429': { description: Rate limited }
-  /agent/heartbeat:
-    post:
-      tags: [Agent]
-      security: [{ deviceAuth: [] }]
-      summary: Report endpoint metadata
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [agent_version, os_version, observed_at]
-              additionalProperties: false
-              properties:
-                agent_version: { type: string, maxLength: 50 }
-                os_version: { type: string, maxLength: 200 }
-                os_edition: { type: string, maxLength: 100 }
-                current_policy_version: { type: [integer, 'null'], minimum: 1 }
-                observed_at: { type: string, format: date-time }
-                endpoint_protection_state: { type: string, enum: [active, inactive, unknown, unsupported] }
-      responses:
-        '202': { description: Heartbeat accepted }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '413': { description: Request too large }
-        '429': { description: Rate limited }
-  /agent/policies/current:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/policies:
     get:
-      tags: [Agent]
-      security: [{ deviceAuth: [] }]
-      summary: Retrieve assigned signed policy for this device
+      tags:
+      - Admin Policies
+      summary: List Policies
+      operationId: list_policies_api_v1_admin_policies_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
       responses:
         '200':
-          description: Policy envelope
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SignedPolicyEnvelope' }
-        '204': { description: No policy update available }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-  /agent/policy-results:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
     post:
-      tags: [Agent]
-      security: [{ deviceAuth: [] }]
-      summary: Report actual per-control enforcement and read-back status
+      tags:
+      - Admin Policies
+      summary: Create Draft Policy
+      operationId: create_draft_policy_api_v1_admin_policies_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [policy_version, observed_at, controls]
-              additionalProperties: false
-              properties:
-                policy_version: { type: integer, minimum: 1 }
-                observed_at: { type: string, format: date-time }
-                controls:
-                  type: array
-                  maxItems: 30
-                  items: { $ref: '#/components/schemas/ControlResult' }
+              $ref: '#/components/schemas/CreateDraftPolicyRequest'
       responses:
-        '202': { description: Results accepted }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicySummary'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/policies/{policy_id}:
+    get:
+      tags:
+      - Admin Policies
+      summary: Get Policy
+      operationId: get_policy_api_v1_admin_policies__policy_id__get
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyDetail'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+    patch:
+      tags:
+      - Admin Policies
+      summary: Edit Draft Policy
+      operationId: edit_draft_policy_api_v1_admin_policies__policy_id__patch
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditDraftPolicyRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/policies/{policy_id}/approve:
+    post:
+      tags:
+      - Admin Policies
+      summary: Approve Policy
+      operationId: approve_policy_api_v1_admin_policies__policy_id__approve_post
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovePolicyRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/policies/{policy_id}/new-draft:
+    post:
+      tags:
+      - Admin Policies
+      summary: New Draft From Published
+      description: Clone the currently published version into a new editable draft. Local development may authenticate with
+        X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.
+      operationId: new_draft_from_published_api_v1_admin_policies__policy_id__new_draft_post
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+  /admin/policies/{policy_id}/publish:
+    post:
+      tags:
+      - Admin Policies
+      summary: Publish Policy
+      operationId: publish_policy_api_v1_admin_policies__policy_id__publish_post
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishPolicyRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/policies/{policy_id}/rollback:
+    post:
+      tags:
+      - Admin Policies
+      summary: Rollback Policy
+      operationId: rollback_policy_api_v1_admin_policies__policy_id__rollback_post
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackPolicyRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/policies/{policy_id}/submit:
+    post:
+      tags:
+      - Admin Policies
+      summary: Submit Policy
+      operationId: submit_policy_api_v1_admin_policies__policy_id__submit_post
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /admin/policies/{policy_id}/versions:
+    get:
+      tags:
+      - Admin Policies
+      summary: Get Policy Versions
+      operationId: get_policy_versions_api_v1_admin_policies__policy_id__versions_get
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-User
+      - name: x-dev-role
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Dev-Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PolicyVersionSummary'
+                title: Response Get Policy Versions Api V1 Admin Policies  Policy Id  Versions Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - oidcBearer: []
+      description: ' Local development may authenticate with X-Dev-User/X-Dev-Role when ALLOW_DEV_AUTH=1.'
+  /agent/credential/rotate:
+    post:
+      tags:
+      - Agent
+      summary: Rotate Credential
+      operationId: rotate_credential_api_v1_agent_credential_rotate_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-device-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateDeviceCredentialResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - deviceBearer: []
+  /agent/enroll:
+    post:
+      tags:
+      - Agent
+      summary: Agent Enroll
+      operationId: agent_enroll_api_v1_agent_enroll_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnrollRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentEnrollResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /agent/events:batch:
     post:
-      tags: [Agent]
-      security: [{ deviceAuth: [] }]
-      summary: Upload bounded security event metadata
+      tags:
+      - Agent
+      summary: Post Events Batch
+      operationId: post_events_batch_api_v1_agent_events_batch_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-device-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [events]
-              additionalProperties: false
-              properties:
-                events:
-                  type: array
-                  minItems: 1
-                  maxItems: 100
-                  items: { $ref: '#/components/schemas/AgentEvent' }
+              $ref: '#/components/schemas/AgentEventsBatchRequest'
       responses:
-        '202': { description: Events accepted }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '413': { description: Payload too large }
-        '429': { description: Rate limited }
-  /agent/updates/check:
-    post:
-      tags: [Agent]
-      security: [{ deviceAuth: [] }]
-      summary: Check approved signed agent release metadata
-      description: Returns signed release metadata. Agent verifies digest and signature before executing update.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [current_version, os_version, architecture]
-              additionalProperties: false
-              properties:
-                current_version: { type: string, maxLength: 50 }
-                os_version: { type: string, maxLength: 200 }
-                architecture: { type: string, enum: [x64, arm64] }
-      responses:
-        '200':
-          description: Agent release metadata
+        '202':
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AgentReleaseCheckResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '429': { description: Rate limited }
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - deviceBearer: []
+  /agent/heartbeat:
+    post:
+      tags:
+      - Agent
+      summary: Agent Heartbeat
+      operationId: agent_heartbeat_api_v1_agent_heartbeat_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-device-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentHeartbeatRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - deviceBearer: []
+  /agent/keys:
+    get:
+      tags:
+      - Agent
+      summary: Policy Keys
+      description: Public verification keys.  No secret material is exposed.
+      operationId: policy_keys_api_v1_agent_keys_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /agent/policies/current:
+    get:
+      tags:
+      - Agent
+      summary: Get Current Policy
+      operationId: get_current_policy_api_v1_agent_policies_current_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-device-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - deviceBearer: []
+  /agent/policy-results:
+    post:
+      tags:
+      - Agent
+      summary: Post Policy Results
+      operationId: post_policy_results_api_v1_agent_policy_results_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-device-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentPolicyResultsRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - deviceBearer: []
+  /agent/updates/check:
+    post:
+      tags:
+      - Agent
+      summary: Check Updates
+      operationId: check_updates_api_v1_agent_updates_check_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: x-device-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdatesCheckRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentReleaseCheckResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - deviceBearer: []
+  /health/live:
+    get:
+      tags:
+      - Health
+      summary: Health Live
+      operationId: health_live_health_live_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /health/ready:
+    get:
+      tags:
+      - Health
+      summary: Health Ready
+      operationId: health_ready_health_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
 components:
+  schemas:
+    AgentEnrollRequest:
+      properties:
+        enrollment_code:
+          type: string
+          maxLength: 128
+          minLength: 8
+          title: Enrollment Code
+        device_public_key:
+          anyOf:
+          - type: string
+            maxLength: 4096
+          - type: 'null'
+          title: Device Public Key
+        agent_version:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Agent Version
+        os_version:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Os Version
+        os_edition:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Os Edition
+          default: Windows 11 Enterprise
+      type: object
+      required:
+      - enrollment_code
+      - agent_version
+      - os_version
+      title: AgentEnrollRequest
+    AgentEnrollResponse:
+      properties:
+        device_id:
+          type: string
+          title: Device Id
+        device_token:
+          type: string
+          title: Device Token
+        expires_at:
+          type: string
+          title: Expires At
+      type: object
+      required:
+      - device_id
+      - device_token
+      - expires_at
+      title: AgentEnrollResponse
+    AgentEventsBatchRequest:
+      properties:
+        events:
+          items:
+            $ref: '#/components/schemas/SecurityEvent'
+          type: array
+          maxItems: 1000
+          minItems: 1
+          title: Events
+      type: object
+      required:
+      - events
+      title: AgentEventsBatchRequest
+    AgentHeartbeatRequest:
+      properties:
+        agent_version:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Agent Version
+        os_version:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Os Version
+        os_edition:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Os Edition
+        current_policy_version:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Current Policy Version
+        observed_at:
+          type: string
+          title: Observed At
+        endpoint_protection_state:
+          anyOf:
+          - type: string
+            enum:
+            - active
+            - inactive
+            - unknown
+            - unsupported
+          - type: 'null'
+          title: Endpoint Protection State
+          default: unknown
+      type: object
+      required:
+      - agent_version
+      - os_version
+      - observed_at
+      title: AgentHeartbeatRequest
+    AgentPolicyResultsRequest:
+      properties:
+        policy_version:
+          type: integer
+          minimum: 1.0
+          title: Policy Version
+        observed_at:
+          type: string
+          title: Observed At
+        controls:
+          items:
+            $ref: '#/components/schemas/ControlResult'
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Controls
+      type: object
+      required:
+      - policy_version
+      - observed_at
+      - controls
+      title: AgentPolicyResultsRequest
+    AgentReleaseCheckResponse:
+      properties:
+        update_available:
+          type: boolean
+          title: Update Available
+        release_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Release Version
+        artifact_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Artifact Url
+        artifact_sha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Artifact Sha256
+        signature_base64:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Signature Base64
+        mandatory:
+          type: boolean
+          title: Mandatory
+          default: false
+      type: object
+      required:
+      - update_available
+      title: AgentReleaseCheckResponse
+    AgentUpdatesCheckRequest:
+      properties:
+        current_version:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Current Version
+        os_version:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Os Version
+        architecture:
+          type: string
+          enum:
+          - x64
+          - arm64
+          title: Architecture
+      type: object
+      required:
+      - current_version
+      - os_version
+      - architecture
+      title: AgentUpdatesCheckRequest
+    ApprovePolicyRequest:
+      properties:
+        approval_notes:
+          type: string
+          maxLength: 500
+          minLength: 3
+          title: Approval Notes
+      type: object
+      required:
+      - approval_notes
+      title: ApprovePolicyRequest
+    ControlResult:
+      properties:
+        control_id:
+          type: string
+          title: Control Id
+        status:
+          type: string
+          enum:
+          - enforced
+          - partial
+          - failed
+          - unsupported
+          - not_configured
+          - unknown
+          title: Status
+        provider:
+          type: string
+          title: Provider
+        provider_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Version
+        observed_at:
+          type: string
+          title: Observed At
+        error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Code
+        safe_details:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Safe Details
+      type: object
+      required:
+      - control_id
+      - status
+      - provider
+      - observed_at
+      title: ControlResult
+    CreateDraftPolicyRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        policy:
+          $ref: '#/components/schemas/PolicyObject'
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 3
+          title: Reason
+      type: object
+      required:
+      - name
+      - policy
+      - reason
+      title: CreateDraftPolicyRequest
+    CreateEnrollmentCodeRequest:
+      properties:
+        expires_in_seconds:
+          type: integer
+          maximum: 600.0
+          minimum: 60.0
+          title: Expires In Seconds
+          default: 300
+        requested_for_user_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requested For User Id
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 3
+          title: Reason
+      type: object
+      required:
+      - reason
+      title: CreateEnrollmentCodeRequest
+    CreateExceptionRequest:
+      properties:
+        device_id:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Device Id
+        control_id:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Control Id
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 5
+          title: Reason
+        expires_at:
+          type: string
+          title: Expires At
+      type: object
+      required:
+      - device_id
+      - control_id
+      - reason
+      - expires_at
+      title: CreateExceptionRequest
+    DeviceDetail:
+      properties:
+        id:
+          type: string
+          title: Id
+        org_id:
+          type: string
+          title: Org Id
+          default: org-default
+        display_name:
+          type: string
+          title: Display Name
+        assigned_user_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Assigned User Id
+        os_version:
+          type: string
+          title: Os Version
+        os_edition:
+          type: string
+          title: Os Edition
+          default: Windows 11 Enterprise
+        agent_version:
+          type: string
+          title: Agent Version
+        status:
+          type: string
+          enum:
+          - enrolled
+          - compliant
+          - noncompliant
+          - stale
+          - revoked
+          - unknown
+          title: Status
+        last_seen_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Seen At
+        policy_version_desired:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Policy Version Desired
+        policy_version_observed:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Policy Version Observed
+        last_applied_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Last Applied Version
+        controls:
+          items:
+            $ref: '#/components/schemas/ControlResult'
+          type: array
+          title: Controls
+        assigned_policy_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Assigned Policy Id
+        compliance_details:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Compliance Details
+      type: object
+      required:
+      - id
+      - display_name
+      - os_version
+      - agent_version
+      - status
+      title: DeviceDetail
+    EditDraftPolicyRequest:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Name
+        policy:
+          anyOf:
+          - $ref: '#/components/schemas/PolicyObject'
+          - type: 'null'
+        reason:
+          anyOf:
+          - type: string
+            maxLength: 500
+            minLength: 3
+          - type: 'null'
+          title: Reason
+      type: object
+      title: EditDraftPolicyRequest
+    EnrollmentCodeResponse:
+      properties:
+        enrollment_code:
+          type: string
+          title: Enrollment Code
+        expires_at:
+          type: string
+          title: Expires At
+        requested_for_user_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requested For User Id
+      type: object
+      required:
+      - enrollment_code
+      - expires_at
+      title: EnrollmentCodeResponse
+    ExceptionSummary:
+      properties:
+        id:
+          type: string
+          title: Id
+        device_id:
+          type: string
+          title: Device Id
+        control_id:
+          type: string
+          title: Control Id
+        reason:
+          type: string
+          title: Reason
+        status:
+          type: string
+          title: Status
+        created_at:
+          type: string
+          title: Created At
+        expires_at:
+          type: string
+          title: Expires At
+        revoked_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Revoked At
+        revoked_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Revoked Reason
+      type: object
+      required:
+      - id
+      - device_id
+      - control_id
+      - reason
+      - status
+      - created_at
+      - expires_at
+      title: ExceptionSummary
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+      type: object
+      required:
+      - status
+      title: HealthResponse
+    PolicyControlItem:
+      properties:
+        control_id:
+          type: string
+          enum:
+          - removable_storage
+          - application_control
+          - disk_encryption
+          - endpoint_protection
+          - endpoint_dlp
+          - network_policy
+          title: Control Id
+        required:
+          type: boolean
+          title: Required
+        settings:
+          additionalProperties: true
+          type: object
+          title: Settings
+      type: object
+      required:
+      - control_id
+      - required
+      - settings
+      title: PolicyControlItem
+    PolicyDetail:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        lifecycle_state:
+          type: string
+          enum:
+          - draft
+          - submitted
+          - approved
+          - published
+          - retired
+          title: Lifecycle State
+        version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Version
+        updated_at:
+          type: string
+          title: Updated At
+        created_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Created By
+        approved_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Approved By
+        published_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Published By
+        policy:
+          $ref: '#/components/schemas/PolicyObject'
+        versions:
+          items:
+            $ref: '#/components/schemas/PolicyVersionSummary'
+          type: array
+          title: Versions
+      type: object
+      required:
+      - id
+      - name
+      - lifecycle_state
+      - updated_at
+      - policy
+      title: PolicyDetail
+    PolicyObject:
+      properties:
+        schema_version:
+          type: string
+          const: 1.0.0
+          title: Schema Version
+          default: 1.0.0
+        policy_id:
+          type: string
+          title: Policy Id
+        policy_version:
+          type: integer
+          minimum: 1.0
+          title: Policy Version
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Description
+          default: ''
+        rollout_mode:
+          type: string
+          enum:
+          - audit
+          - enforce
+          title: Rollout Mode
+          default: enforce
+        controls:
+          items:
+            $ref: '#/components/schemas/PolicyControlItem'
+          type: array
+          title: Controls
+      type: object
+      required:
+      - policy_id
+      - policy_version
+      - name
+      - controls
+      title: PolicyObject
+    PolicySummary:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        lifecycle_state:
+          type: string
+          enum:
+          - draft
+          - submitted
+          - approved
+          - published
+          - retired
+          title: Lifecycle State
+        version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Version
+        updated_at:
+          type: string
+          title: Updated At
+        created_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Created By
+        approved_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Approved By
+        published_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Published By
+      type: object
+      required:
+      - id
+      - name
+      - lifecycle_state
+      - updated_at
+      title: PolicySummary
+    PolicyVersionSummary:
+      properties:
+        version:
+          type: integer
+          title: Version
+        digest_sha256:
+          type: string
+          title: Digest Sha256
+        key_id:
+          type: string
+          title: Key Id
+        rollback_of_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Rollback Of Version
+        published_at:
+          type: string
+          title: Published At
+        published_by:
+          type: string
+          title: Published By
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      required:
+      - version
+      - digest_sha256
+      - key_id
+      - published_at
+      - published_by
+      title: PolicyVersionSummary
+    PublishPolicyRequest:
+      properties:
+        version:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Version
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 3
+          title: Reason
+        rollout_group:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Rollout Group
+          default: all
+      type: object
+      required:
+      - reason
+      title: PublishPolicyRequest
+    RevokeDeviceRequest:
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 3
+          title: Reason
+      type: object
+      required:
+      - reason
+      title: RevokeDeviceRequest
+    RevokeExceptionRequest:
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 3
+          title: Reason
+      type: object
+      required:
+      - reason
+      title: RevokeExceptionRequest
+    RollbackPolicyRequest:
+      properties:
+        target_version:
+          type: integer
+          minimum: 1.0
+          title: Target Version
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 3
+          title: Reason
+      type: object
+      required:
+      - target_version
+      - reason
+      title: RollbackPolicyRequest
+    RotateDeviceCredentialResponse:
+      properties:
+        device_id:
+          type: string
+          title: Device Id
+        device_token:
+          type: string
+          title: Device Token
+        issued_at:
+          type: string
+          title: Issued At
+      type: object
+      required:
+      - device_id
+      - device_token
+      - issued_at
+      title: RotateDeviceCredentialResponse
+    SecurityEvent:
+      properties:
+        id:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Id
+        device_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device Id
+        event_type:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Event Type
+        severity:
+          type: string
+          enum:
+          - info
+          - low
+          - medium
+          - high
+          - critical
+          title: Severity
+        occurred_at:
+          type: string
+          title: Occurred At
+        source:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Source
+        response_state:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Response State
+      type: object
+      required:
+      - event_type
+      - severity
+      - occurred_at
+      - source
+      - response_state
+      title: SecurityEvent
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
   securitySchemes:
     oidcBearer:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: OIDC-issued access token; validate issuer, audience, signature and expiry.
-    deviceAuth:
-      type: mutualTLS
-      description: Device-bound client certificate authentication via mTLS; private key in TPM/CNG.
-  parameters:
-    DeviceId:
-      name: device_id
-      in: path
-      required: true
-      schema: { type: string, format: uuid }
-    IdempotencyKey:
-      name: Idempotency-Key
+      description: OIDC access token with a WorkGuard role claim.
+    deviceBearer:
+      type: http
+      scheme: bearer
+      description: Per-device token returned once by POST /agent/enroll.
+    devHeaders:
+      type: apiKey
       in: header
-      required: false
-      schema: { type: string, minLength: 8, maxLength: 128 }
-  responses:
-    BadRequest:
-      description: Invalid request
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-    Unauthorized:
-      description: Authentication required or invalid
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-    Forbidden:
-      description: Insufficient permission
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-    NotFound:
-      description: Resource not found in caller's authorized scope
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-  schemas:
-    DeviceSummary:
-      type: object
-      required: [id, display_name, status, last_seen_at]
-      properties:
-        id: { type: string, format: uuid }
-        display_name: { type: string }
-        assigned_user_id: { type: [string, 'null'], format: uuid }
-        os_version: { type: string }
-        agent_version: { type: string }
-        status: { type: string, enum: [enrolled, compliant, noncompliant, stale, revoked, unknown] }
-        last_seen_at: { type: [string, 'null'], format: date-time }
-    DeviceDetail:
-      allOf:
-        - $ref: '#/components/schemas/DeviceSummary'
-        - type: object
-          properties:
-            os_edition: { type: string }
-            policy_version_desired: { type: [integer, 'null'] }
-            policy_version_observed: { type: [integer, 'null'] }
-            controls:
-              type: array
-              items: { $ref: '#/components/schemas/ControlResult' }
-    PolicySummary:
-      type: object
-      required: [id, name, lifecycle_state]
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        lifecycle_state: { type: string, enum: [draft, submitted, approved, published, retired] }
-        version: { type: [integer, 'null'], minimum: 1 }
-        updated_at: { type: string, format: date-time }
-    PolicyDetail:
-      allOf:
-        - $ref: '#/components/schemas/PolicySummary'
-        - type: object
-          required: [policy]
-          properties:
-            policy: { $ref: '#/components/schemas/Policy' }
-            created_by: { type: string, format: uuid }
-            approved_by: { type: [string, 'null'], format: uuid }
-            published_by: { type: [string, 'null'], format: uuid }
-    Policy:
-      type: object
-      required: [schema_version, policy_id, policy_version, name, rollout_mode, controls]
-      additionalProperties: false
-      properties:
-        schema_version: { type: string, const: '1.0.0' }
-        policy_id: { type: string, format: uuid }
-        policy_version: { type: integer, minimum: 1 }
-        name: { type: string, minLength: 1, maxLength: 120 }
-        description: { type: string, maxLength: 1000 }
-        rollout_mode: { type: string, enum: [audit, enforce] }
-        controls:
-          type: array
-          maxItems: 30
-          items:
-            type: object
-            required: [control_id, required, settings]
-            additionalProperties: false
-            properties:
-              control_id:
-                type: string
-                enum: [removable_storage, application_control, disk_encryption, endpoint_protection, endpoint_dlp, network_policy]
-              required: { type: boolean }
-              settings:
-                type: object
-                description: "Typed settings validated against control_id rules in schemas/policy.schema.json"
-    SignedPolicyEnvelope:
-      type: object
-      required: [policy_id, policy_version, schema_version, issued_at, expires_at, target_device_id, digest_sha256, signature, algorithm, key_id, policy]
-      properties:
-        policy_id: { type: string, format: uuid }
-        policy_version: { type: integer, minimum: 1 }
-        schema_version: { type: string }
-        issued_at: { type: string, format: date-time }
-        expires_at: { type: string, format: date-time }
-        target_device_id: { type: string, format: uuid }
-        digest_sha256: { type: string, pattern: '^[a-fA-F0-9]{64}$' }
-        algorithm: { type: string, const: 'Ed25519' }
-        key_id: { type: string, maxLength: 100 }
-        signature:
-          type: string
-          minLength: 64
-          maxLength: 500
-          description: Base64-encoded Ed25519 signature over canonical JSON envelope (RFC 8785 / JCS) per SIGNING_SPEC.md
-        policy: { $ref: '#/components/schemas/Policy' }
-    ControlResult:
-      type: object
-      required: [control_id, status, observed_at, provider]
-      properties:
-        control_id: { type: string }
-        status: { type: string, enum: [enforced, partial, failed, unsupported, not_configured, unknown] }
-        provider: { type: string, maxLength: 100 }
-        observed_at: { type: string, format: date-time }
-        error_code: { type: [string, 'null'], maxLength: 100 }
-        safe_details:
-          type: [string, 'null']
-          maxLength: 1000
-          description: Diagnostic detail conforming to safe allowlist; must not contain secrets, tokens, file paths outside standard roots, or personal identifiable info.
-    SecurityEvent:
-      type: object
-      required: [id, event_type, severity, occurred_at, source]
-      properties:
-        id: { type: string, format: uuid }
-        device_id: { type: [string, 'null'], format: uuid }
-        event_type: { type: string, maxLength: 120 }
-        severity: { type: string, enum: [info, low, medium, high, critical] }
-        occurred_at: { type: string, format: date-time }
-        source: { type: string, maxLength: 100 }
-        response_state: { type: string, maxLength: 100 }
-    AgentEvent:
-      allOf:
-        - $ref: '#/components/schemas/SecurityEvent'
-      description: Bounded metadata only. Never include file content, access tokens, clipboard data or source-code text.
-    AdminAuditEvent:
-      type: object
-      required: [id, actor_user_id, action, target_type, target_id, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        actor_user_id: { type: string, format: uuid }
-        action: { type: string, maxLength: 100 }
-        target_type: { type: string, maxLength: 100 }
-        target_id: { type: [string, 'null'], format: uuid }
-        details: { type: object }
-        created_at: { type: string, format: date-time }
-    PolicyException:
-      type: object
-      required: [id, device_id, control_id, reason, status, created_at, expires_at]
-      properties:
-        id: { type: string, format: uuid }
-        device_id: { type: string, format: uuid }
-        control_id: { type: string, maxLength: 100 }
-        reason: { type: string, maxLength: 500 }
-        status: { type: string, enum: [active, revoked, expired] }
-        created_at: { type: string, format: date-time }
-        expires_at: { type: string, format: date-time }
-        revoked_at: { type: [string, 'null'], format: date-time }
-        revoked_reason: { type: [string, 'null'], maxLength: 500 }
-    AgentReleaseCheckResponse:
-      type: object
-      required: [update_available]
-      properties:
-        update_available: { type: boolean }
-        release_version: { type: [string, 'null'], maxLength: 50 }
-        artifact_url: { type: [string, 'null'], format: uri }
-        artifact_sha256: { type: [string, 'null'], pattern: '^[a-fA-F0-9]{64}$' }
-        signature_base64: { type: [string, 'null'], minLength: 16 }
-        mandatory: { type: boolean }
-    ErrorResponse:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: object
-          required: [code, message, request_id]
-          properties:
-            code: { type: string, maxLength: 100 }
-            message: { type: string, maxLength: 500 }
-            request_id: { type: string, maxLength: 100 }
+      name: X-Dev-User
+      description: Local development identity. Requires APP_ENV=local, AUTH_MODE=dev and ALLOW_DEV_AUTH=1; also send X-Dev-Role.
+servers:
+- url: /api/v1
+  description: Relative to the control-plane origin
+x-workguard-implementation:
+  status: local MVP
+  windows_agent: not implemented; endpoint-agent/simulator.py is a verification harness
+  real_dlp: not implemented
+  signing: Ed25519 over RFC 8785 canonical envelopes, generated per device at fetch time
+tags:
+- name: Health
+  description: Liveness and readiness probes.
+- name: Admin Devices
+  description: Device inventory, enrollment, revocation and credential rotation.
+- name: Admin Policies
+  description: Policy drafts, approval, publication and rollback.
+- name: Admin Events
+  description: Security events and the hash-chained admin audit trail.
+- name: Admin Exceptions
+  description: Scoped, expiring control exceptions.
+- name: Agent
+  description: Device enrollment, policy retrieval, results and events.

@@ -15,6 +15,15 @@ __pycache__/
 venv/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+
+# Local databases and development credentials
+*.db
+*.db-wal
+*.db-shm
+control-api/.local/
+control-api/.dev-device-tokens.json
+endpoint-agent/agent_identity.json
 
 # Node
 node_modules/
